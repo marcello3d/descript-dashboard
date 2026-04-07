@@ -18,6 +18,16 @@ export async function fetchAssignedIssues(
   const result: LinearIssue[] = [];
   for (const issue of issues.nodes) {
     const state = await issue.state;
+
+    // Fetch attachments to find linked GitHub PRs
+    const attachments = await issue.attachments();
+    const prUrls: string[] = [];
+    for (const att of attachments.nodes) {
+      if (att.url && att.url.includes("github.com") && att.url.includes("/pull/")) {
+        prUrls.push(att.url);
+      }
+    }
+
     result.push({
       id: issue.id,
       title: issue.title,
@@ -26,6 +36,7 @@ export async function fetchAssignedIssues(
       priority: issue.priority,
       url: issue.url,
       updatedAt: issue.updatedAt.toISOString(),
+      prUrls,
     });
   }
   return result;

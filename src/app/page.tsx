@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServiceData } from "@/lib/hooks";
 import { SiLinear, SiGithub } from "react-icons/si";
 import type { LinearIssue, GitHubPR, CursorAgent, WorkItem } from "@/types";
-import LinearStatus from "@/components/LinearStatus";
+import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 
 // Real Cursor logomark from their brand assets
 function CursorIcon({ className }: { className?: string }) {
@@ -32,18 +32,32 @@ function buildWorkItems(
     });
   }
 
-  // Match PRs to issues by identifier in title/url, or by agent prUrl
+  // Match PRs to issues by: Linear attachments, identifier in title/url, or agent prUrl
   for (const pr of prs) {
-    const prText = `${pr.title} ${pr.url}`.toLowerCase();
     let matched = false;
-    for (const [key, item] of items) {
-      if (prText.includes(key)) {
+
+    // 1. Match by Linear attachment (issue has this PR URL linked)
+    for (const [, item] of items) {
+      if (item.linear?.prUrls.includes(pr.url)) {
         item.pr = pr;
         matched = true;
         break;
       }
     }
-    // Also try matching via agents that link this PR to an issue
+
+    // 2. Match by identifier in PR title/url/branch
+    if (!matched) {
+      const prText = `${pr.title} ${pr.url} ${pr.branch}`.toLowerCase();
+      for (const [key, item] of items) {
+        if (prText.includes(key)) {
+          item.pr = pr;
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    // 3. Match via agents that link this PR to an issue
     if (!matched) {
       for (const agent of agents) {
         if (agent.prUrl === pr.url) {
@@ -59,6 +73,7 @@ function buildWorkItems(
         }
       }
     }
+
     if (!matched) {
       const id = `pr-${pr.id}`;
       items.set(id, { id, title: pr.title, pr, agents: [] });
@@ -132,18 +147,112 @@ function timeAgo(dateStr: string): { text: string; color: string } {
   return { text, color: "text-gray-300" };
 }
 
-function ReviewBadge({ decision, draft }: { decision: string | null; draft: boolean }) {
-  if (draft) return <span className="text-xs text-gray-400">draft</span>;
-  switch (decision) {
-    case "APPROVED":
-      return <span className="text-xs text-green-600">approved</span>;
-    case "CHANGES_REQUESTED":
-      return <span className="text-xs text-red-500">changes</span>;
-    case "REVIEW_REQUIRED":
-      return <span className="text-xs text-yellow-600">needs review</span>;
+const priorityConfig: Record<number, { label: string; color: string }> = {
+  1: { label: "P0", color: "text-red-600" },
+  2: { label: "P1", color: "text-orange-500" },
+  3: { label: "P2", color: "text-gray-400" },
+  4: { label: "P3", color: "text-gray-300" },
+};
+
+function PriorityBadge({ priority }: { priority: number }) {
+  const config = priorityConfig[priority];
+  if (!config) return null;
+  return (
+    <span className={`text-[10px] font-mono font-medium ${config.color}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function ChecksIcon({ state }: { state: string | null }) {
+  if (!state) return null;
+  switch (state) {
+    case "SUCCESS":
+      return <span className="text-green-500" title="Checks passing">&#10003;</span>;
+    case "FAILURE":
+    case "ERROR":
+      return <span className="text-red-500" title="Checks failing">&#10005;</span>;
+    case "PENDING":
+    case "EXPECTED":
+      return <span className="text-yellow-500" title="Checks pending">&#9679;</span>;
     default:
-      return <span className="text-xs text-gray-400">open</span>;
+      return null;
   }
+}
+
+function ReviewBadge({ decision, draft, merged, checksState }: { decision: string | null; draft: boolean; merged: boolean; checksState: string | null }) {
+  let label: React.ReactNode;
+  if (merged) label = <span className="text-xs text-purple-600">merged</span>;
+  else if (draft) label = <span className="text-xs text-gray-400">draft</span>;
+  else switch (decision) {
+    case "APPROVED":
+      label = <span className="text-xs text-green-600">approved</span>; break;
+    case "CHANGES_REQUESTED":
+      label = <span className="text-xs text-red-500">changes</span>; break;
+    case "REVIEW_REQUIRED":
+      label = <span className="text-xs text-yellow-600">needs review</span>; break;
+    default:
+      label = <span className="text-xs text-gray-400">open</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      {!merged && <span className="text-[10px]"><ChecksIcon state={checksState} /></span>}
+    </span>
+  );
+}
+
+function UnifiedStatus({ item }: { item: WorkItem }) {
+  const linearIcon = item.linear
+    ? <StatusIcon status={item.linear.status} />
+    : <StatusIcon status="In Progress" />;
+
+  // PR exists → show Linear icon + GitHub-derived status
+  if (item.pr) {
+    let label: React.ReactNode;
+    if (item.pr.merged) label = <span className="text-xs text-purple-600">PR merged</span>;
+    else if (item.pr.reviewDecision === "CHANGES_REQUESTED")
+      label = <span className="text-xs text-red-500">PR changes requested</span>;
+    else if (item.pr.reviewDecision === "APPROVED")
+      label = <span className="text-xs text-green-600">PR approved</span>;
+    else if (item.pr.draft) label = <span className="text-xs text-gray-400">PR draft</span>;
+    else if (item.pr.reviewDecision === "REVIEW_REQUIRED")
+      label = <span className="text-xs text-yellow-600">PR in review</span>;
+    else label = <span className="text-xs text-gray-400">PR open</span>;
+    return <span className="inline-flex items-center gap-1 leading-none">{linearIcon}{label}</span>;
+  }
+
+  // No PR, has Linear → show icon + Linear status text
+  if (item.linear) {
+    return (
+      <span className="inline-flex items-center gap-1 leading-none">
+        {linearIcon}
+        <span className="text-xs text-gray-500">{item.linear.status}</span>
+      </span>
+    );
+  }
+
+  // Only Cursor agent (no linear/PR) → show backlog icon + "No PR"
+  if (item.agents.length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 leading-none">
+        <StatusIcon status="Backlog" />
+        <span className="text-xs text-gray-400">No PR</span>
+      </span>
+    );
+  }
+
+  return linearIcon;
+}
+
+function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
+  return (
+    <span className="text-[11px] font-mono">
+      {additions > 0 && <span className="text-green-600">+{additions}</span>}
+      {additions > 0 && deletions > 0 && <span className="text-gray-300"> </span>}
+      {deletions > 0 && <span className="text-red-500">-{deletions}</span>}
+    </span>
+  );
 }
 
 function AgentInfo({ agent }: { agent: CursorAgent }) {
@@ -151,21 +260,15 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
   const color =
     s === "running" || s === "in_progress"
       ? "text-green-600"
-      : s === "finished"
-      ? "text-blue-500"
       : s === "failed" || s === "error"
       ? "text-red-500"
       : "text-gray-400";
 
-  const diff =
-    agent.linesAdded || agent.linesRemoved
-      ? ` +${agent.linesAdded} -${agent.linesRemoved}`
-      : "";
+  const showStatus = s !== "finished";
 
   return (
-    <span className="text-xs">
-      <span className={color}>{s}</span>
-      {diff && <span className="text-gray-400 ml-1 font-mono">{diff}</span>}
+    <span className="text-xs inline-flex items-center gap-1">
+      {showStatus && <span className={color}>{s}</span>}
     </span>
   );
 }
@@ -173,15 +276,19 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
 function ServiceHeader({
   label,
   connected,
+  error,
 }: {
   label: string;
   connected: boolean | null;
+  error?: string | null;
 }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-gray-400">
       <span
         className={`w-1.5 h-1.5 rounded-full ${
-          connected === null
+          error
+            ? "bg-red-500"
+            : connected === null
             ? "bg-gray-300"
             : connected
             ? "bg-green-500"
@@ -189,8 +296,227 @@ function ServiceHeader({
         }`}
       />
       {label}
+      {error && <span className="text-red-500" title={error}>!</span>}
     </span>
   );
+}
+
+function WorkItemTable({
+  items,
+  linear,
+  github,
+  cursor,
+  dimmed,
+}: {
+  items: WorkItem[];
+  linear: { connected: boolean | null; error?: string | null };
+  github: { connected: boolean | null; error?: string | null };
+  cursor: { connected: boolean | null; error?: string | null };
+  dimmed?: boolean;
+}) {
+  return (
+    <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
+      <thead>
+        <tr className="border-b border-gray-200">
+          <th className="text-right py-2 px-2 w-[70px]">
+            <span className="text-xs font-medium text-gray-500">Updated</span>
+          </th>
+          <th className="text-left py-2 px-2">
+            <span className="text-xs font-medium text-gray-500">Item</span>
+          </th>
+          <th className="text-center py-2 px-2 w-[24px]"></th>
+          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
+            <ServiceHeader label="Linear" connected={linear.connected} error={linear.error} />
+          </th>
+          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
+            <ServiceHeader label="GitHub" connected={github.connected} error={github.error} />
+          </th>
+          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
+            <ServiceHeader label="Cursor" connected={cursor.connected} error={cursor.error} />
+          </th>
+          <th className="text-left py-2 px-2 w-[120px]">
+            <span className="text-xs font-medium text-gray-500">Status</span>
+          </th>
+          <th className="text-right py-2 px-2 w-px whitespace-nowrap">
+            <span className="text-xs font-medium text-gray-500">Changes</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => {
+          const lastUpdated = getLastUpdated(item);
+          return (
+            <tr
+              key={item.id}
+              className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors"
+            >
+              <td className="py-1.5 px-2 text-right">
+                {lastUpdated && (() => {
+                  const { text, color } = timeAgo(lastUpdated);
+                  return (
+                    <span className={`text-xs ${color}`} title={new Date(lastUpdated).toLocaleString()}>
+                      {text}
+                    </span>
+                  );
+                })()}
+              </td>
+              <td className="py-1.5 px-2">
+                <a
+                  href={item.linear?.url ?? item.pr?.url ?? item.agents[0]?.url ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                >
+                  {item.title}
+                </a>
+              </td>
+              <td className="py-1.5 px-0 text-center w-[24px]">
+                {item.linear && item.linear.priority > 0 && (
+                  <PriorityBadge priority={item.linear.priority} />
+                )}
+              </td>
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                {item.linear ? (
+                  <a
+                    href={item.linear.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-indigo-50 transition-colors"
+                  >
+                    <SiLinear className="w-3.5 h-3.5 text-[#5E6AD2] flex-shrink-0" />
+                    <span className="text-xs text-gray-400 font-mono">
+                      {item.linear.identifier}
+                    </span>
+                  </a>
+                ) : (
+                  <div className="flex px-2">
+                    <SiLinear className="w-3.5 h-3.5 text-gray-200" />
+                  </div>
+                )}
+              </td>
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                {item.pr ? (
+                  <a
+                    href={item.pr.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-gray-100 transition-colors"
+                  >
+                    <SiGithub className="w-3.5 h-3.5 text-gray-700 flex-shrink-0" />
+                    <span className="text-xs text-gray-400 font-mono">#{item.pr.url.split("/").pop()}</span>
+                  </a>
+                ) : item.linear?.prUrls?.[0] ? (
+                  <a
+                    href={item.linear.prUrls[0]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-gray-100 transition-colors"
+                  >
+                    <SiGithub className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-xs text-gray-400 font-mono">#{item.linear.prUrls[0].split("/").pop()}</span>
+                  </a>
+                ) : (
+                  <div className="flex px-2">
+                    <SiGithub className="w-3.5 h-3.5 text-gray-200" />
+                  </div>
+                )}
+              </td>
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                {item.agents.length > 0 ? (
+                  <a
+                    href={item.agents[0].url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-blue-50 transition-colors"
+                  >
+                    <CursorIcon className="w-3.5 h-3.5 text-gray-700 flex-shrink-0" />
+                    <span className="text-xs text-gray-400">Cursor</span>
+                    <AgentInfo agent={item.agents[0]} />
+                  </a>
+                ) : (
+                  <div className="flex px-2">
+                    <CursorIcon className="w-3.5 h-3.5 text-gray-200" />
+                  </div>
+                )}
+              </td>
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                <div className="flex items-center py-1.5 px-2 -my-1">
+                  <UnifiedStatus item={item} />
+                </div>
+              </td>
+              {(() => {
+                const files = item.pr?.changedFiles ?? item.agents[0]?.filesChanged ?? 0;
+                const add = item.pr?.additions ?? item.agents[0]?.linesAdded ?? 0;
+                const del = item.pr?.deletions ?? item.agents[0]?.linesRemoved ?? 0;
+                const prUrl = item.pr?.url ?? item.linear?.prUrls?.[0] ?? null;
+                const changesUrl = prUrl ? `${prUrl}/files` : null;
+                const hasContent = files > 0 || add > 0 || del > 0;
+                const inner = hasContent ? (
+                  <span className="inline-flex items-center text-xs">
+                    <span className="text-gray-400 text-right w-[40px] flex-shrink-0">{files > 0 ? `${files} ${files === 1 ? "file" : "files"}` : ""}</span>
+                    <span className="w-2 flex-shrink-0" />
+                    {(add > 0 || del > 0) ? <DiffStats additions={add} deletions={del} /> : null}
+                  </span>
+                ) : null;
+                return (
+                  <td className="py-1.5 px-1 whitespace-nowrap">
+                    {inner && changesUrl ? (
+                      <a href={changesUrl} target="_blank" rel="noopener noreferrer" className="py-1.5 px-2 -my-1 rounded hover:bg-gray-100 transition-colors inline-flex">{inner}</a>
+                    ) : inner}
+                  </td>
+                );
+              })()}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+type FilterMode = "open" | "closed" | "all";
+type SortMode = "date" | "priority";
+
+function ToggleGroup<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-gray-200 overflow-hidden">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`text-xs px-2.5 py-1 transition-colors ${
+            value === opt.value
+              ? "bg-gray-900 text-white"
+              : "bg-white text-gray-500 hover:bg-gray-50"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function sortItems(items: WorkItem[], sort: SortMode): WorkItem[] {
+  return [...items].sort((a, b) => {
+    if (sort === "priority") {
+      // Priority: 1=urgent, 4=low, 0=none. Put 0 last.
+      const ap = a.linear?.priority ?? 0;
+      const bp = b.linear?.priority ?? 0;
+      const aNorm = ap === 0 ? 99 : ap;
+      const bNorm = bp === 0 ? 99 : bp;
+      if (aNorm !== bNorm) return aNorm - bNorm;
+    }
+    return getLastUpdated(b).localeCompare(getLastUpdated(a));
+  });
 }
 
 export default function Home() {
@@ -198,10 +524,51 @@ export default function Home() {
   const github = useServiceData<GitHubPR>("/api/github/prs");
   const cursor = useServiceData<CursorAgent>("/api/cursor/agents");
 
-  const workItems = useMemo(
+  const [filter, setFilter] = useState<FilterMode>("open");
+  const [sort, setSort] = useState<SortMode>("date");
+
+  const allItems = useMemo(
     () => buildWorkItems(linear.data ?? [], github.data ?? [], cursor.data ?? []),
     [linear.data, github.data, cursor.data]
   );
+
+  const { open, closed } = useMemo(() => {
+    const open: WorkItem[] = [];
+    const closed: WorkItem[] = [];
+    for (const item of allItems) {
+      const cursorOnly = !item.linear && !item.pr && item.agents.length > 0;
+      const isClosed =
+        item.pr?.merged ||
+        item.linear?.status.toLowerCase() === "canceled" ||
+        item.linear?.status.toLowerCase() === "cancelled" ||
+        cursorOnly;
+      if (isClosed) {
+        closed.push(item);
+      } else {
+        open.push(item);
+      }
+    }
+    return { open, closed };
+  }, [allItems]);
+
+  const displayItems = useMemo(() => {
+    const items =
+      filter === "open" ? open : filter === "closed" ? closed : allItems;
+    return sortItems(items, sort);
+  }, [filter, sort, open, closed, allItems]);
+
+  useEffect(() => {
+    if (open.length === 0) {
+      document.title = "Dashboard";
+      return;
+    }
+    const approved = open.filter(i => i.pr?.reviewDecision === "APPROVED").length;
+    const needsReview = open.filter(i => i.pr && !i.pr.draft && !i.pr.merged && i.pr.reviewDecision !== "APPROVED" && i.pr.reviewDecision !== "CHANGES_REQUESTED").length;
+    const parts: string[] = [];
+    if (approved) parts.push(`${approved} ready`);
+    if (needsReview) parts.push(`${needsReview} reviewing`);
+    document.title = parts.length > 0 ? `(${parts.join(", ")}) Dashboard` : "Dashboard";
+  }, [open]);
 
   const anyLoading = linear.loading || github.loading || cursor.loading;
   const refreshAll = () => {
@@ -213,152 +580,100 @@ export default function Home() {
   return (
     <div className="max-w-5xl mx-auto p-4">
       <header className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
-        <button
-          onClick={refreshAll}
-          disabled={anyLoading}
-          className="text-gray-400 hover:text-gray-600 disabled:opacity-50 p-1"
-          title="Refresh all"
-        >
-          <svg
-            className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+        <h1 className="text-lg font-bold text-gray-900">
+          Dashboard
+          {open.length > 0 && (() => {
+            const needsReview = open.filter(i => i.pr && !i.pr.draft && !i.pr.merged && i.pr.reviewDecision !== "APPROVED" && i.pr.reviewDecision !== "CHANGES_REQUESTED").length;
+            const approved = open.filter(i => i.pr?.reviewDecision === "APPROVED").length;
+            const changesRequested = open.filter(i => i.pr?.reviewDecision === "CHANGES_REQUESTED").length;
+            const drafts = open.filter(i => i.pr?.draft).length;
+            const noPr = open.filter(i => !i.pr).length;
+            const parts: string[] = [];
+            if (approved) parts.push(`${approved} ready to merge`);
+            if (needsReview) parts.push(`${needsReview} waiting on review`);
+            if (changesRequested) parts.push(`${changesRequested} needs changes`);
+            if (drafts) parts.push(`${drafts} draft`);
+            if (noPr) parts.push(`${noPr} no PR`);
+            return (
+              <span className="text-sm font-normal text-gray-400 ml-2">
+                {parts.join(" · ")}
+              </span>
+            );
+          })()}
+        </h1>
+        <div className="flex items-center gap-3">
+          <ToggleGroup
+            options={[
+              { value: "open" as FilterMode, label: "Open" },
+              { value: "closed" as FilterMode, label: "Closed" },
+              { value: "all" as FilterMode, label: "All" },
+            ]}
+            value={filter}
+            onChange={setFilter}
+          />
+          <ToggleGroup
+            options={[
+              { value: "date" as SortMode, label: "Date" },
+              { value: "priority" as SortMode, label: "Priority" },
+            ]}
+            value={sort}
+            onChange={setSort}
+          />
+          <button
+            onClick={refreshAll}
+            disabled={anyLoading}
+            className="text-gray-400 hover:text-gray-600 disabled:opacity-50 p-1"
+            title="Refresh all"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-        </button>
+            <svg
+              className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        </div>
       </header>
 
-      {(linear.error || github.error || cursor.error) && (
+      {(linear.error || github.error || cursor.error || github.rateLimit) && (
         <div className="mb-3 space-y-1">
           {linear.error && <p className="text-xs text-red-500">Linear: {linear.error}</p>}
-          {github.error && <p className="text-xs text-red-500">GitHub: {github.error}</p>}
+          {github.error && (
+            <p className="text-xs text-red-500">
+              GitHub: {github.error}
+              {github.rateLimit && <> &middot; resets {new Date(github.rateLimit.resetAt).toLocaleTimeString()}</>}
+            </p>
+          )}
+          {!github.error && github.rateLimit && (
+            <p className={`text-xs ${github.rateLimit.remaining < 100 ? "text-yellow-600" : "text-gray-400"}`}>
+              GitHub API: {github.rateLimit.remaining}/{github.rateLimit.limit} remaining
+              {github.rateLimit.remaining < 500 && <> &middot; resets {new Date(github.rateLimit.resetAt).toLocaleTimeString()}</>}
+            </p>
+          )}
           {cursor.error && <p className="text-xs text-red-500">Cursor: {cursor.error}</p>}
         </div>
       )}
 
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-right py-2 px-2 w-[70px]">
-              <span className="text-xs font-medium text-gray-500">Updated</span>
-            </th>
-            <th className="text-left py-2 px-2">
-              <span className="text-xs font-medium text-gray-500">Item</span>
-            </th>
-            <th className="text-left py-2 px-2 w-[150px]">
-              <ServiceHeader label="Linear" connected={linear.connected} />
-            </th>
-            <th className="text-left py-2 px-2 w-[140px]">
-              <ServiceHeader label="GitHub" connected={github.connected} />
-            </th>
-            <th className="text-left py-2 px-2 w-[150px]">
-              <ServiceHeader label="Cursor" connected={cursor.connected} />
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {workItems.map((item) => {
-            const lastUpdated = getLastUpdated(item);
-            return (
-              <tr
-                key={item.id}
-                className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors"
-              >
-                {/* Updated column */}
-                <td className="py-1.5 px-2 text-right">
-                  {lastUpdated && (() => {
-                    const { text, color } = timeAgo(lastUpdated);
-                    return (
-                      <span className={`text-xs ${color}`} title={new Date(lastUpdated).toLocaleString()}>
-                        {text}
-                      </span>
-                    );
-                  })()}
-                </td>
+      <WorkItemTable
+        items={displayItems}
+        linear={linear}
+        github={github}
+        cursor={cursor}
+        dimmed={filter === "closed"}
+      />
 
-                {/* Title */}
-                <td className="py-1.5 px-2">
-                  <span className="text-sm text-gray-900 line-clamp-1">
-                    {item.title}
-                  </span>
-                </td>
-
-                {/* Linear column */}
-                <td className="py-1.5 px-1 whitespace-nowrap">
-                  {item.linear ? (
-                    <a
-                      href={item.linear.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="grid grid-cols-[auto_70px_1fr] items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-indigo-50 transition-colors"
-                    >
-                      <SiLinear className="w-3.5 h-3.5 text-[#5E6AD2] flex-shrink-0" />
-                      <span className="text-xs text-gray-400 font-mono">
-                        {item.linear.identifier}
-                      </span>
-                      <LinearStatus status={item.linear.status} />
-                    </a>
-                  ) : (
-                    <div className="flex px-2">
-                      <SiLinear className="w-3.5 h-3.5 text-gray-200" />
-                    </div>
-                  )}
-                </td>
-
-                {/* GitHub column */}
-                <td className="py-1.5 px-1 whitespace-nowrap">
-                  {item.pr ? (
-                    <a
-                      href={item.pr.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-gray-100 transition-colors"
-                    >
-                      <SiGithub className="w-3.5 h-3.5 text-gray-700 flex-shrink-0" />
-                      <ReviewBadge decision={item.pr.reviewDecision} draft={item.pr.draft} />
-                    </a>
-                  ) : (
-                    <div className="flex px-2">
-                      <SiGithub className="w-3.5 h-3.5 text-gray-200" />
-                    </div>
-                  )}
-                </td>
-
-                {/* Cursor column */}
-                <td className="py-1.5 px-1 whitespace-nowrap">
-                  {item.agents.length > 0 ? (
-                    <a
-                      href={item.agents[0].url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-blue-50 transition-colors"
-                    >
-                      <CursorIcon className="w-3.5 h-3.5 text-gray-700 flex-shrink-0" />
-                      <AgentInfo agent={item.agents[0]} />
-                    </a>
-                  ) : (
-                    <div className="flex px-2">
-                      <CursorIcon className="w-3.5 h-3.5 text-gray-200" />
-                    </div>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {workItems.length === 0 && !anyLoading && (
+      {displayItems.length === 0 && !anyLoading && (
         <p className="text-sm text-gray-400 text-center py-12">
-          No items to show. Check your API keys in .env.local
+          {filter === "closed"
+            ? "No closed items"
+            : "No active items. Check your API keys in .env.local"}
         </p>
       )}
     </div>

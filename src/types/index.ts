@@ -6,16 +6,23 @@ export interface LinearIssue {
   priority: number;
   url: string;
   updatedAt: string;
+  prUrls: string[]; // GitHub PR URLs linked via attachments/relations
 }
 
 export interface GitHubPR {
   id: number;
   title: string;
   repo: string;
+  branch: string;
   draft: boolean;
+  merged: boolean;
   url: string;
   updatedAt: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
   reviewDecision: string | null; // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null
+  checksState: string | null; // SUCCESS, FAILURE, PENDING, ERROR, EXPECTED, or null
 }
 
 export interface CursorAgent {
@@ -36,6 +43,7 @@ export interface ServiceResponse<T> {
   connected: boolean;
   error?: string;
   data?: T[];
+  rateLimit?: { remaining: number; limit: number; resetAt: string };
 }
 
 // A unified work item that links related PRs, issues, and agents
