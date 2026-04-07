@@ -6,16 +6,19 @@ export interface LinearIssue {
   priority: number;
   url: string;
   updatedAt: string;
+  assignee?: string; // display name of the assignee
   prUrls: string[]; // GitHub PR URLs linked via attachments/relations
 }
 
 export interface GitHubPR {
   id: number;
   title: string;
+  author: string;
   repo: string;
   branch: string;
   draft: boolean;
   merged: boolean;
+  closed: boolean;
   url: string;
   updatedAt: string;
   additions: number;

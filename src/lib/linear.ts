@@ -6,6 +6,7 @@ const IDENTIFIER_RE = /[A-Z]+-\d+/gi;
 
 async function issueToLinearIssue(issue: any): Promise<LinearIssue> {
   const state = await issue.state;
+  const assigneeObj = await issue.assignee;
   const attachments = await issue.attachments();
   const prUrls: string[] = [];
   for (const att of attachments.nodes) {
@@ -21,6 +22,7 @@ async function issueToLinearIssue(issue: any): Promise<LinearIssue> {
     priority: issue.priority,
     url: issue.url,
     updatedAt: issue.updatedAt.toISOString(),
+    assignee: assigneeObj?.displayName ?? undefined,
     prUrls,
   };
 }
@@ -62,6 +64,25 @@ export interface LinearResult {
   rateLimit?: LinearRateLimit;
 }
 
+export async function fetchSubscribedIssues(
+  apiKey: string
+): Promise<LinearIssue[]> {
+  const client = new LinearClient({ apiKey });
+  const issues = await client.issues({
+    first: 50,
+    filter: {
+      and: [
+        { subscribers: { some: { isMe: { eq: true } } } },
+        { assignee: { isMe: { eq: false } } },
+        { state: { type: { nin: ["completed", "canceled"] } } },
+      ],
+    },
+    orderBy: "updatedAt" as any,
+  });
+
+  return Promise.all(issues.nodes.map(issueToLinearIssue));
+}
+
 export async function fetchAssignedIssues(
   apiKey: string
 ): Promise<LinearResult> {
@@ -87,7 +108,7 @@ export async function fetchAssignedIssues(
         cost: Math.round(lim.requestedAmount),
         remaining: Math.round(lim.remainingAmount),
         limit: Math.round(lim.allowedAmount),
-        resetAt: new Date(lim.reset * 1000).toISOString(),
+        resetAt: new Date(lim.reset).toISOString(),
       };
     }
   } catch {

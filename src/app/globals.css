@@ -3,11 +3,49 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --surface: #ffffff;
+  --surface-hover: rgba(0, 0, 0, 0.03);
+  --surface-alt: #f9fafb;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-muted: rgba(0, 0, 0, 0.06);
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-tertiary: #6b7280;
+  --text-muted: #9ca3af;
+  --fill-muted: rgba(0, 0, 0, 0.06);
+  --fill-highlight: rgba(0, 0, 0, 0.04);
+  --fill-active: #111827;
+  --fill-inactive: transparent;
+  --status-red: #dc2626;
+  --status-orange: #c2410c;
+  --status-yellow: #a16207;
+  --status-green: #15803d;
+  --status-blue: #2563eb;
+  --status-purple: #7c3aed;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-alt: var(--surface-alt);
+  --color-border: var(--border);
+  --color-border-muted: var(--border-muted);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-muted: var(--text-muted);
+  --color-fill-muted: var(--fill-muted);
+  --color-fill-highlight: var(--fill-highlight);
+  --color-fill-active: var(--fill-active);
+  --color-fill-inactive: var(--fill-inactive);
+  --color-status-red: var(--status-red);
+  --color-status-orange: var(--status-orange);
+  --color-status-yellow: var(--status-yellow);
+  --color-status-green: var(--status-green);
+  --color-status-blue: var(--status-blue);
+  --color-status-purple: var(--status-purple);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,6 +54,25 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --surface: #1a1a1a;
+    --surface-hover: rgba(255, 255, 255, 0.05);
+    --surface-alt: #141414;
+    --border: rgba(255, 255, 255, 0.12);
+    --border-muted: rgba(255, 255, 255, 0.06);
+    --text-primary: #ededed;
+    --text-secondary: #a1a1aa;
+    --text-tertiary: #8b8b95;
+    --text-muted: #6b6b75;
+    --fill-muted: rgba(255, 255, 255, 0.08);
+    --fill-highlight: rgba(255, 255, 255, 0.04);
+    --fill-active: #ededed;
+    --fill-inactive: transparent;
+    --status-red: #f87171;
+    --status-orange: #fb923c;
+    --status-yellow: #facc15;
+    --status-green: #4ade80;
+    --status-blue: #60a5fa;
+    --status-purple: #a78bfa;
   }
 }
 
@@ -23,4 +80,17 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.toggle-active {
+  background: var(--text-primary);
+  color: var(--background);
+  font-weight: 500;
+}
+
+.toggle-inactive {
+  opacity: 0.5;
+}
+.toggle-inactive:hover {
+  opacity: 0.75;
 }
