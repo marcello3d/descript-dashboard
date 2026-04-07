@@ -27,6 +27,7 @@ export interface GitHubPR {
   changedFiles: number;
   reviewDecision: string | null; // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null
   checksState: string | null; // SUCCESS, FAILURE, PENDING, ERROR, EXPECTED, or null
+  cursorAgentUrl: string | null; // parsed from PR body, e.g. https://cursor.com/agents/bc-xxx
 }
 
 export interface CursorAgent {

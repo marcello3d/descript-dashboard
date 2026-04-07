@@ -3,7 +3,20 @@ import type { CursorAgent } from "@/types";
 const CURSOR_API_BASE =
   process.env.CURSOR_API_BASE_URL ?? "https://api.cursor.com";
 
-export async function fetchBGAJobs(apiKey: string): Promise<CursorAgent[]> {
+// Raw API response shape from Cursor
+export interface RawCursorAgent {
+  id: string;
+  name?: string;
+  status?: string;
+  source?: { repository?: string };
+  target?: { branchName?: string; url?: string; prUrl?: string | null };
+  createdAt?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
+  filesChanged?: number;
+}
+
+export async function fetchRawAgents(apiKey: string): Promise<RawCursorAgent[]> {
   const res = await fetch(`${CURSOR_API_BASE}/v0/agents`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -13,9 +26,11 @@ export async function fetchBGAJobs(apiKey: string): Promise<CursorAgent[]> {
   }
 
   const data = await res.json();
-  const agents = data.agents ?? [];
+  return data.agents ?? [];
+}
 
-  return agents.map((agent: any) => ({
+export function transformAgent(agent: RawCursorAgent): CursorAgent {
+  return {
     id: agent.id,
     name: agent.name ?? "",
     status: agent.status ?? "unknown",
@@ -27,5 +42,9 @@ export async function fetchBGAJobs(apiKey: string): Promise<CursorAgent[]> {
     linesAdded: agent.linesAdded ?? 0,
     linesRemoved: agent.linesRemoved ?? 0,
     filesChanged: agent.filesChanged ?? 0,
-  }));
+  };
+}
+
+export function transformAgents(raw: RawCursorAgent[]): CursorAgent[] {
+  return raw.map(transformAgent);
 }

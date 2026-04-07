@@ -1,55 +1,81 @@
 import { LinearClient } from "@linear/sdk";
 import type { LinearIssue } from "@/types";
 
-// Extract Linear identifiers (e.g. "DIO-123") from text
-const IDENTIFIER_RE = /[A-Z]+-\d+/gi;
+// Raw resolved data from Linear SDK (plain object, JSON-serializable)
+export interface RawLinearIssue {
+  id: string;
+  title: string;
+  identifier: string;
+  statusName: string;
+  priority: number;
+  url: string;
+  updatedAt: string;
+  assigneeName?: string;
+  attachmentUrls: string[];
+}
 
-async function issueToLinearIssue(issue: any): Promise<LinearIssue> {
+async function resolveIssue(issue: any): Promise<RawLinearIssue> {
   const state = await issue.state;
   const assigneeObj = await issue.assignee;
   const attachments = await issue.attachments();
-  const prUrls: string[] = [];
+  const attachmentUrls: string[] = [];
   for (const att of attachments.nodes) {
-    if (att.url && att.url.includes("github.com") && att.url.includes("/pull/")) {
-      prUrls.push(att.url);
-    }
+    if (att.url) attachmentUrls.push(att.url);
   }
   return {
     id: issue.id,
     title: issue.title,
     identifier: issue.identifier,
-    status: state?.name ?? "Unknown",
+    statusName: state?.name ?? "Unknown",
     priority: issue.priority,
     url: issue.url,
     updatedAt: issue.updatedAt.toISOString(),
-    assignee: assigneeObj?.displayName ?? undefined,
+    assigneeName: assigneeObj?.displayName ?? undefined,
+    attachmentUrls,
+  };
+}
+
+export function transformIssue(raw: RawLinearIssue): LinearIssue {
+  const prUrls: string[] = [];
+  for (const url of raw.attachmentUrls) {
+    if (url.includes("github.com") && url.includes("/pull/")) {
+      prUrls.push(url);
+    }
+  }
+  return {
+    id: raw.id,
+    title: raw.title,
+    identifier: raw.identifier,
+    status: raw.statusName,
+    priority: raw.priority,
+    url: raw.url,
+    updatedAt: raw.updatedAt,
+    assignee: raw.assigneeName,
     prUrls,
   };
 }
 
-export async function fetchIssuesByIdentifiers(
+export function transformIssues(raw: RawLinearIssue[]): LinearIssue[] {
+  return raw.map(transformIssue);
+}
+
+export async function fetchRawIssuesByIdentifiers(
   apiKey: string,
   identifiers: string[]
-): Promise<LinearIssue[]> {
+): Promise<RawLinearIssue[]> {
   if (identifiers.length === 0) return [];
   const client = new LinearClient({ apiKey });
-  const result: LinearIssue[] = [];
-  // Linear SDK doesn't support batch identifier lookup, so fetch one at a time
-  // but parallelize them
   const promises = identifiers.map(async (id) => {
     try {
       const issue = await client.issue(id);
-      if (issue) return issueToLinearIssue(issue);
+      if (issue) return resolveIssue(issue);
     } catch {
       // Issue not found or other error
     }
     return null;
   });
   const resolved = await Promise.all(promises);
-  for (const r of resolved) {
-    if (r) result.push(r);
-  }
-  return result;
+  return resolved.filter((r): r is RawLinearIssue => r !== null);
 }
 
 export interface LinearRateLimit {
@@ -59,14 +85,14 @@ export interface LinearRateLimit {
   resetAt: string;
 }
 
-export interface LinearResult {
-  issues: LinearIssue[];
+export interface RawLinearResult {
+  issues: RawLinearIssue[];
   rateLimit?: LinearRateLimit;
 }
 
-export async function fetchSubscribedIssues(
+export async function fetchRawSubscribedIssues(
   apiKey: string
-): Promise<LinearIssue[]> {
+): Promise<RawLinearIssue[]> {
   const client = new LinearClient({ apiKey });
   const issues = await client.issues({
     first: 50,
@@ -80,12 +106,12 @@ export async function fetchSubscribedIssues(
     orderBy: "updatedAt" as any,
   });
 
-  return Promise.all(issues.nodes.map(issueToLinearIssue));
+  return Promise.all(issues.nodes.map(resolveIssue));
 }
 
-export async function fetchAssignedIssues(
+export async function fetchRawAssignedIssues(
   apiKey: string
-): Promise<LinearResult> {
+): Promise<RawLinearResult> {
   const client = new LinearClient({ apiKey });
   const viewer = await client.viewer;
   const issues = await viewer.assignedIssues({
@@ -97,7 +123,7 @@ export async function fetchAssignedIssues(
     },
   });
 
-  const result = await Promise.all(issues.nodes.map(issueToLinearIssue));
+  const result = await Promise.all(issues.nodes.map(resolveIssue));
 
   let rateLimit: LinearRateLimit | undefined;
   try {

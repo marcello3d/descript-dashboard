@@ -1,6 +1,25 @@
 import { Octokit } from "@octokit/rest";
 import type { GitHubPR } from "@/types";
 
+const CURSOR_AGENT_URL_RES = [
+  /https:\/\/cursor\.com\/agents\/[a-zA-Z0-9-]+/,
+  /https:\/\/cursor\.com\/agents\?id=([a-zA-Z0-9-]+)/,
+  /https:\/\/cursor\.com\/background-agent\?bcId=([a-zA-Z0-9-]+)/,
+];
+
+function extractCursorAgentUrl(body: string | null | undefined): string | null {
+  if (!body) return null;
+  for (const re of CURSOR_AGENT_URL_RES) {
+    const match = body.match(re);
+    if (match) {
+      // Normalize to canonical agents URL
+      const id = match[1] ?? match[0].split("/").pop();
+      return `https://cursor.com/agents/${id}`;
+    }
+  }
+  return null;
+}
+
 // Cache GitHub login -> display name (persists across requests in the same process)
 const userNameCache = new Map<string, string>();
 
@@ -32,10 +51,74 @@ export interface GitHubRateLimit {
   resetAt: string;
 }
 
-export interface GitHubResult {
-  prs: GitHubPR[];
+// Raw PR data — JSON-serializable, cached as-is
+export interface RawGitHubPR {
+  id: number;
+  title: string;
+  userLogin: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  draft: boolean;
+  merged: boolean;
+  state: string;
+  url: string;
+  updatedAt: string;
+  body: string | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  reviews: { login: string; state: string }[];
+}
+
+export interface RawGitHubResult {
+  prs: RawGitHubPR[];
   rateLimit?: GitHubRateLimit;
   searchRateLimit?: GitHubRateLimit;
+}
+
+// Transform raw PR to the app's GitHubPR type
+export function transformPR(raw: RawGitHubPR): GitHubPR {
+  let reviewDecision: string | null = null;
+  if (!raw.draft && raw.reviews.length > 0) {
+    const byUser = new Map<string, string>();
+    for (const r of raw.reviews) {
+      if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
+        byUser.set(r.login, r.state);
+      }
+    }
+    if ([...byUser.values()].some(s => s === "CHANGES_REQUESTED")) {
+      reviewDecision = "CHANGES_REQUESTED";
+    } else if (byUser.size > 0 && [...byUser.values()].every(s => s === "APPROVED")) {
+      reviewDecision = "APPROVED";
+    } else if (byUser.size > 0) {
+      reviewDecision = "REVIEW_REQUIRED";
+    }
+  }
+
+  return {
+    id: raw.id,
+    title: raw.title,
+    author: raw.userLogin,
+    authorLogin: raw.userLogin,
+    repo: `${raw.owner}/${raw.repo}`,
+    branch: raw.branch,
+    draft: raw.draft,
+    merged: raw.merged,
+    closed: raw.state === "closed" && !raw.merged,
+    url: raw.url,
+    updatedAt: raw.updatedAt,
+    reviewDecision,
+    additions: raw.additions,
+    deletions: raw.deletions,
+    changedFiles: raw.changedFiles,
+    checksState: null,
+    cursorAgentUrl: extractCursorAgentUrl(raw.body),
+  };
+}
+
+export function transformPRs(raw: RawGitHubPR[]): GitHubPR[] {
+  return raw.map(transformPR);
 }
 
 // Strategy to minimize rate limit cost:
@@ -43,10 +126,10 @@ export interface GitHubResult {
 // 2. Diff against previous results — skip unchanged PRs
 // 3. REST pulls.get only for new/changed PRs (1 core point each)
 // Best case (nothing changed): 3 search points (from search bucket). Worst case: 3 + N core points.
-export async function fetchAuthoredPRs(
+export async function fetchRawAuthoredPRs(
   accessToken: string,
-  previousPrs?: GitHubPR[]
-): Promise<GitHubResult> {
+  previousPrs?: RawGitHubPR[]
+): Promise<RawGitHubResult> {
   const octokit = new Octokit({ auth: accessToken });
 
   // Phase 1: REST search for open + merged + closed PRs (uses search rate limit, not core/graphql)
@@ -83,18 +166,17 @@ export async function fetchAuthoredPRs(
   });
 
   // Phase 2: Diff against previous results
-  const prevById = new Map<number, GitHubPR>();
+  const prevById = new Map<number, RawGitHubPR>();
   if (previousPrs) {
     for (const pr of previousPrs) prevById.set(pr.id, pr);
   }
 
   const needFetch: typeof searchItems = [];
-  const reusable = new Map<number, GitHubPR>();
+  const reusable = new Map<number, RawGitHubPR>();
 
   for (const item of searchItems) {
     const prev = prevById.get(item.id);
     if (prev && prev.updatedAt === item.updated_at) {
-      if (!prev.authorLogin) prev.authorLogin = item.user?.login ?? "";
       reusable.set(item.id, prev);
     } else {
       needFetch.push(item);
@@ -111,7 +193,7 @@ export async function fetchAuthoredPRs(
     coreBefore = rlBefore.data.resources.core.remaining;
   } catch { /* ignore */ }
 
-  const freshPrs = new Map<number, GitHubPR>();
+  const freshPrs = new Map<number, RawGitHubPR>();
 
   // Fetch in parallel, batches of 10 to avoid overwhelming
   for (let i = 0; i < needFetch.length; i += 10) {
@@ -124,68 +206,57 @@ export async function fetchAuthoredPRs(
             owner, repo, pull_number: item.number,
           });
 
-          // Get review decision for non-draft PRs (open and merged)
-          let reviewDecision: string | null = null;
+          // Fetch reviews for non-draft PRs
+          let reviews: { login: string; state: string }[] = [];
           if (!pr.draft) {
             try {
-              const { data: reviews } = await octokit.rest.pulls.listReviews({
+              const { data: rawReviews } = await octokit.rest.pulls.listReviews({
                 owner, repo, pull_number: item.number, per_page: 100,
               });
-              const byUser = new Map<string, string>();
-              for (const r of reviews) {
-                if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
-                  byUser.set(r.user?.login ?? "", r.state);
-                }
-              }
-              if ([...byUser.values()].some(s => s === "CHANGES_REQUESTED")) {
-                reviewDecision = "CHANGES_REQUESTED";
-              } else if (byUser.size > 0 && [...byUser.values()].every(s => s === "APPROVED")) {
-                reviewDecision = "APPROVED";
-              } else {
-                reviewDecision = "REVIEW_REQUIRED";
-              }
+              reviews = rawReviews
+                .filter(r => r.state === "APPROVED" || r.state === "CHANGES_REQUESTED")
+                .map(r => ({ login: r.user?.login ?? "", state: r.state }));
             } catch { /* ignore review fetch errors */ }
           }
 
           return {
             id: item.id,
             title: pr.title,
-            author: pr.user?.login ?? "",
-            authorLogin: pr.user?.login ?? "",
-            repo: `${owner}/${repo}`,
+            userLogin: pr.user?.login ?? "",
+            owner,
+            repo,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
-            closed: pr.state === "closed" && !pr.merged,
+            state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
-            reviewDecision,
+            body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
-            checksState: null,
-          } satisfies GitHubPR;
+            reviews,
+          } satisfies RawGitHubPR;
         } catch {
           // Fallback to search data
-          const [owner, repo] = item.repository_url.split("/").slice(-2);
           return {
             id: item.id,
             title: item.title,
-            author: item.user?.login ?? "",
-            authorLogin: item.user?.login ?? "",
-            repo: `${owner}/${repo}`,
+            userLogin: item.user?.login ?? "",
+            owner,
+            repo,
             branch: "",
             draft: item.draft ?? false,
             merged: item.pull_request?.merged_at != null,
-            closed: item.state === "closed" && item.pull_request?.merged_at == null,
+            state: item.state,
             url: item.html_url,
             updatedAt: item.updated_at,
-            reviewDecision: null,
+            body: null,
             additions: 0,
             deletions: 0,
             changedFiles: 0,
-            checksState: null,
-          } satisfies GitHubPR;
+            reviews: [],
+          } satisfies RawGitHubPR;
         }
       })
     );
@@ -195,15 +266,15 @@ export async function fetchAuthoredPRs(
   }
 
   // Merge in search order
-  const allPrs: GitHubPR[] = [];
+  const allPrs: RawGitHubPR[] = [];
   for (const item of searchItems) {
     const pr = freshPrs.get(item.id) ?? reusable.get(item.id);
     if (pr) allPrs.push(pr);
   }
 
   // Get actual core cost from rate limit delta
-  let rateLimit: GitHubResult["rateLimit"];
-  let searchRateLimit: GitHubResult["searchRateLimit"];
+  let rateLimit: RawGitHubResult["rateLimit"];
+  let searchRateLimit: RawGitHubResult["searchRateLimit"];
   try {
     const rlAfter = await octokit.rest.rateLimit.get();
     const core = rlAfter.data.resources.core;
@@ -232,13 +303,13 @@ export async function fetchAuthoredPRs(
 
 // Fetch PRs by their GitHub URLs (e.g. from Linear attachments)
 // Returns only the ones we can successfully fetch (1 core point each)
-export async function fetchPrsByUrls(
+export async function fetchRawPrsByUrls(
   accessToken: string,
   urls: string[]
-): Promise<GitHubPR[]> {
+): Promise<RawGitHubPR[]> {
   if (urls.length === 0) return [];
   const octokit = new Octokit({ auth: accessToken });
-  const results: GitHubPR[] = [];
+  const results: RawGitHubPR[] = [];
 
   // Parse owner/repo/number from URLs like https://github.com/owner/repo/pull/123
   const parsed = urls.map(url => {
@@ -255,21 +326,21 @@ export async function fetchPrsByUrls(
           return {
             id: pr.id,
             title: pr.title,
-            author: pr.user?.login ?? "",
-            authorLogin: pr.user?.login ?? "",
-            repo: `${owner}/${repo}`,
+            userLogin: pr.user?.login ?? "",
+            owner,
+            repo,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
-            closed: pr.state === "closed" && !pr.merged,
+            state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
-            reviewDecision: null,
+            body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
-            checksState: null,
-          } satisfies GitHubPR;
+            reviews: [],
+          } satisfies RawGitHubPR;
         } catch {
           return null;
         }
@@ -283,10 +354,10 @@ export async function fetchPrsByUrls(
   return results;
 }
 
-export async function fetchReviewRequestedPRs(
+export async function fetchRawReviewRequestedPRs(
   accessToken: string,
-  previousPrs?: GitHubPR[]
-): Promise<{ prs: GitHubPR[] }> {
+  previousPrs?: RawGitHubPR[]
+): Promise<{ prs: RawGitHubPR[] }> {
   const octokit = new Octokit({ auth: accessToken });
 
   const res = await octokit.rest.search.issuesAndPullRequests({
@@ -298,26 +369,24 @@ export async function fetchReviewRequestedPRs(
   const searchItems = res.data.items;
 
   // Diff against previous results
-  const prevById = new Map<number, GitHubPR>();
+  const prevById = new Map<number, RawGitHubPR>();
   if (previousPrs) {
     for (const pr of previousPrs) prevById.set(pr.id, pr);
   }
 
   const needFetch: typeof searchItems = [];
-  const reusable = new Map<number, GitHubPR>();
+  const reusable = new Map<number, RawGitHubPR>();
 
   for (const item of searchItems) {
     const prev = prevById.get(item.id);
     if (prev && prev.updatedAt === item.updated_at) {
-      // Backfill authorLogin from search data for cached PRs missing the field
-      if (!prev.authorLogin) prev.authorLogin = item.user?.login ?? "";
       reusable.set(item.id, prev);
     } else {
       needFetch.push(item);
     }
   }
 
-  const freshPrs = new Map<number, GitHubPR>();
+  const freshPrs = new Map<number, RawGitHubPR>();
 
   for (let i = 0; i < needFetch.length; i += 10) {
     const batch = needFetch.slice(i, i + 10);
@@ -331,58 +400,63 @@ export async function fetchReviewRequestedPRs(
           return {
             id: item.id,
             title: pr.title,
-            author: pr.user?.login ?? "",
-            authorLogin: pr.user?.login ?? "",
-            repo: `${owner}/${repo}`,
+            userLogin: pr.user?.login ?? "",
+            owner,
+            repo,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
-            closed: false,
+            state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
-            reviewDecision: null,
+            body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
-            checksState: null,
-          } satisfies GitHubPR;
+            reviews: [],
+          } satisfies RawGitHubPR;
         } catch {
-          const [owner, repo] = item.repository_url.split("/").slice(-2);
           return {
             id: item.id,
             title: item.title,
-            author: item.user?.login ?? "",
-            authorLogin: item.user?.login ?? "",
-            repo: `${owner}/${repo}`,
+            userLogin: item.user?.login ?? "",
+            owner,
+            repo,
             branch: "",
             draft: item.draft ?? false,
             merged: false,
-            closed: false,
+            state: "open",
             url: item.html_url,
             updatedAt: item.updated_at,
-            reviewDecision: null,
+            body: null,
             additions: 0,
             deletions: 0,
             changedFiles: 0,
-            checksState: null,
-          } satisfies GitHubPR;
+            reviews: [],
+          } satisfies RawGitHubPR;
         }
       })
     );
     for (const pr of results) freshPrs.set(pr.id, pr);
   }
 
-  const allPrs: GitHubPR[] = [];
+  const allPrs: RawGitHubPR[] = [];
   for (const item of searchItems) {
     const pr = freshPrs.get(item.id) ?? reusable.get(item.id);
     if (pr) allPrs.push(pr);
   }
 
   // Resolve GitHub logins to display names
-  await resolveUserNames(octokit, allPrs.map(pr => pr.authorLogin));
-  for (const pr of allPrs) {
-    pr.author = displayName(pr.authorLogin);
-  }
+  await resolveUserNames(octokit, allPrs.map(pr => pr.userLogin));
 
   return { prs: allPrs };
+}
+
+// Transform review PRs with resolved display names
+export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {
+  return raw.map(r => {
+    const pr = transformPR(r);
+    pr.author = displayName(r.userLogin);
+    return pr;
+  });
 }

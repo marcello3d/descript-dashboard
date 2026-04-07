@@ -207,7 +207,7 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
       ? "text-status-red"
       : "text-text-tertiary";
 
-  const showStatus = s !== "finished";
+  const showStatus = s !== "finished" && s !== "unknown";
 
   return (
     <span className="text-xs inline-flex items-center gap-1">
@@ -256,7 +256,7 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
       key: `pr-${pr.id}`,
       updatedAt: pr.updatedAt,
       title: pr.title,
-      owner: pr.author !== pr.authorLogin ? `${pr.author} (@${pr.authorLogin})` : `@${pr.authorLogin}`,
+      owner: pr.author !== pr.authorLogin ? `@${pr.authorLogin} (${pr.author})` : `@${pr.authorLogin}`,
       pr,
       linear,
     };
