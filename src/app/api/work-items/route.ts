@@ -166,6 +166,7 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
+    viewerLogin: reviewResult.viewerLogin,
     items,
     reviewPrs,
     reviewIssues,
@@ -272,27 +273,30 @@ async function fetchLinearReviews(bypass: boolean, errors: string[]) {
 
 async function fetchGitHubReviews(bypass: boolean, errors: string[]) {
   const token = process.env.GITHUB_TOKEN;
-  if (!token) return { raw: [] as RawGitHubPR[] };
+  if (!token) return { raw: [] as RawGitHubPR[], viewerLogin: "" };
 
   if (!bypass) {
     const cached = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS);
     if (cached) {
       logApiCall("github", "reviews", "cached", 0);
-      return { raw: cached };
+      const login = getCached<string>("github:viewerLogin") ?? "";
+      return { raw: cached, viewerLogin: login };
     }
   }
 
   try {
     const previous = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS, true) ?? undefined;
     const start = Date.now();
-    const { prs } = await dedupe("github:reviews", () => fetchRawReviewRequestedPRs(token, previous));
+    const { prs, viewerLogin } = await dedupe("github:reviews", () => fetchRawReviewRequestedPRs(token, previous));
     logApiCall("github", "reviews", "ok", Date.now() - start);
     setCache(CACHE_KEY_GITHUB_REVIEWS, prs, CACHE_TTL_GITHUB_REVIEWS);
-    return { raw: prs };
+    if (viewerLogin) setCache("github:viewerLogin", viewerLogin, 24 * 60 * 60 * 1000);
+    return { raw: prs, viewerLogin };
   } catch (e: any) {
     errors.push(`github-reviews: ${e.message}`);
     const stale = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS, true);
-    return { raw: stale ?? [] };
+    const login = getCached<string>("github:viewerLogin") ?? "";
+    return { raw: stale ?? [], viewerLogin: login };
   }
 }
 

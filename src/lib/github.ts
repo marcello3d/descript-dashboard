@@ -75,6 +75,8 @@ export interface RawGitHubPR {
   changedFiles: number;
   reviews: { login: string; state: string }[];
   userDisplayName?: string; // resolved from GitHub API, present on review PRs
+  requestedReviewers?: string[]; // individual logins requested for review
+  requestedTeams?: string[]; // team slugs requested for review
 }
 
 export interface RawGitHubResult {
@@ -120,6 +122,8 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     changedFiles: raw.changedFiles,
     checksState: null,
     cursorAgentUrl: extractCursorAgentUrl(raw.body),
+    requestedReviewers: raw.requestedReviewers ?? [],
+    requestedTeams: raw.requestedTeams ?? [],
   };
 }
 
@@ -363,7 +367,7 @@ export async function fetchRawPrsByUrls(
 export async function fetchRawReviewRequestedPRs(
   accessToken: string,
   previousPrs?: RawGitHubPR[]
-): Promise<{ prs: RawGitHubPR[] }> {
+): Promise<{ prs: RawGitHubPR[]; viewerLogin: string }> {
   const octokit = new Octokit({ auth: accessToken });
 
   const res = await octokit.rest.search.issuesAndPullRequests({
@@ -420,6 +424,8 @@ export async function fetchRawReviewRequestedPRs(
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
             reviews: [],
+            requestedReviewers: (pr.requested_reviewers ?? []).map((r: any) => r.login),
+            requestedTeams: (pr.requested_teams ?? []).map((t: any) => t.slug),
           } satisfies RawGitHubPR;
         } catch {
           return {
@@ -459,7 +465,14 @@ export async function fetchRawReviewRequestedPRs(
     if (name) pr.userDisplayName = name;
   }
 
-  return { prs: allPrs };
+  // Get authenticated user login
+  let viewerLogin = "";
+  try {
+    const { data: viewer } = await octokit.rest.users.getAuthenticated();
+    viewerLogin = viewer.login;
+  } catch { /* ignore */ }
+
+  return { prs: allPrs, viewerLogin };
 }
 
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {

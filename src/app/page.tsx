@@ -263,12 +263,29 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
   });
 }
 
-function ReviewQueue({ prs, issues, favorites, onToggleFavorite }: { prs: GitHubPR[]; issues: LinearIssue[]; favorites: Set<string>; onToggleFavorite: (id: string) => void }) {
-  const items = useMemo(() => {
+function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void }) {
+  const groups = useMemo(() => {
     const built = buildReviewItems(prs, issues);
-    return built.sort((a, b) => (favorites.has(b.key) ? 1 : 0) - (favorites.has(a.key) ? 1 : 0));
-  }, [prs, issues, favorites]);
-  if (items.length === 0) return null;
+    const favs: ReviewItem[] = [];
+    const direct: ReviewItem[] = [];
+    const team: ReviewItem[] = [];
+    for (const item of built) {
+      if (favorites.has(item.key)) {
+        favs.push(item);
+      } else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) {
+        direct.push(item);
+      } else {
+        team.push(item);
+      }
+    }
+    const groups: { label: string; items: ReviewItem[] }[] = [];
+    if (favs.length > 0) groups.push({ label: "Favorites", items: favs });
+    if (direct.length > 0) groups.push({ label: "Individually requested", items: direct });
+    if (team.length > 0) groups.push({ label: "Team requested", items: team });
+    return groups;
+  }, [prs, issues, viewerLogin, favorites]);
+  const colCount = 7;
+  if (groups.length === 0) return null;
   return (
     <div className="mb-4">
       <table className="w-full">
@@ -293,7 +310,15 @@ function ReviewQueue({ prs, issues, favorites, onToggleFavorite }: { prs: GitHub
             </th>
           </tr>
         </thead>
-        <tbody>
+        {groups.map(({ label, items }) => (
+        <tbody key={label}>
+          {groups.length > 1 && (
+            <tr className="sticky top-[84px] z-[5] bg-surface-alt">
+              <td colSpan={colCount} className="pt-4 pb-1 px-2">
+                <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({items.length})</span></span>
+              </td>
+            </tr>
+          )}
           {items.map(item => (
             <tr key={item.key} className="border-b border-border-muted hover:bg-surface-hover transition-colors">
               <td className="py-1.5 px-0 text-center w-[24px]">
@@ -350,6 +375,7 @@ function ReviewQueue({ prs, issues, favorites, onToggleFavorite }: { prs: GitHub
             </tr>
           ))}
         </tbody>
+        ))}
       </table>
     </div>
   );
@@ -829,6 +855,7 @@ function useWorkItems(intervalMs = 300000) {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [reviewPrs, setReviewPrs] = useState<GitHubPR[]>([]);
   const [reviewIssues, setReviewIssues] = useState<LinearIssue[]>([]);
+  const [viewerLogin, setViewerLogin] = useState("");
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [stats, setStats] = useState<ApiStatRow[]>([]);
   const [recent, setRecent] = useState<ApiCallRecord[]>([]);
@@ -850,6 +877,7 @@ function useWorkItems(intervalMs = 300000) {
       setItems(json.items ?? []);
       setReviewPrs(json.reviewPrs ?? []);
       setReviewIssues(json.reviewIssues ?? []);
+      setViewerLogin(json.viewerLogin ?? "");
       const rls: RateLimitInfo[] = [];
       if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
       if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
@@ -875,11 +903,11 @@ function useWorkItems(intervalMs = 300000) {
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
 
-  return { items, reviewPrs, reviewIssues, rateLimits, stats, recent, errors, loading, refresh };
+  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, refresh };
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, refresh: refreshAll } = useWorkItems();
+  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, refresh: refreshAll } = useWorkItems();
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1063,7 +1091,7 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue prs={reviewPrs} issues={reviewIssues} favorites={favorites} onToggleFavorite={toggleFavorite} />
+          <ReviewQueue prs={reviewPrs} issues={reviewIssues} viewerLogin={viewerLogin} favorites={favorites} onToggleFavorite={toggleFavorite} />
           {reviewPrs.length === 0 && reviewIssues.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
           )}
