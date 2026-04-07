@@ -43,6 +43,10 @@ export async function GET(request: Request) {
       const rateLimits: { github?: RateLimit; githubSearch?: RateLimit; linear?: RateLimit } = {};
       const errors: string[] = [];
 
+      // Progress tracking: phase 0 (cache) + 5 fetches + up to 3 lookups + final
+      const TOTAL_STEPS = 10;
+      let currentStep = 0;
+
       function buildAndEmit(done: boolean) {
         const issues = transformIssues(rawLinear);
         const prs = transformPRs(rawGithub);
@@ -59,12 +63,13 @@ export async function GET(request: Request) {
           errors: [...errors],
           stats: getApiCallStats(),
           recent: getRecentApiCalls(100),
+          progress: { step: currentStep, totalSteps: TOTAL_STEPS },
           done,
         });
         controller.enqueue(encoder.encode(line + "\n"));
       }
 
-      // Phase 0: Emit cached snapshot immediately (ignoring expiry)
+      // Phase 0: Emit cached snapshot immediately (ignoring expiry) — step 0
       rawLinear = getCached<RawLinearIssue[]>(CACHE_KEY_LINEAR, true) ?? [];
       rawGithub = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB, true) ?? [];
       rawCursor = getCached<RawCursorAgent[]>(CACHE_KEY_CURSOR, true) ?? [];
@@ -74,6 +79,7 @@ export async function GET(request: Request) {
       if (rl) rateLimits.linear = rl;
       const ghrl = getCached<RateLimit>(CACHE_KEY_GITHUB_RATE, true);
       if (ghrl) rateLimits.github = ghrl;
+      currentStep = 1;
       buildAndEmit(false);
 
       // Phase 1: Fire all fetches, emit as each completes
@@ -114,13 +120,15 @@ export async function GET(request: Request) {
           pending.filter((_, i) => !done.has(i))
         );
         done.add(idx);
+        currentStep = 1 + done.size; // steps 2-6
         if (emitNeeded) {
           emitNeeded = false;
           buildAndEmit(false);
         }
       }
 
-      // Phase 2: Lookup phases (sequential, emit after each)
+      // Phase 2: Lookup phases (sequential, emit after each) — steps 7-9
+      currentStep = 7;
       const issues = transformIssues(rawLinear);
       const prs = transformPRs(rawGithub);
       const agents = transformAgents(rawCursor);
@@ -155,6 +163,7 @@ export async function GET(request: Request) {
       }
 
       // Phase 2b: Missing GitHub PRs
+      currentStep = 8;
       const currentPrs = transformPRs(rawGithub);
       const currentIssues = transformIssues(rawLinear);
       const knownPrUrls = new Set(currentPrs.map(pr => pr.url));
@@ -186,6 +195,7 @@ export async function GET(request: Request) {
       }
 
       // Phase 2c: Review issue enrichment
+      currentStep = 9;
       const reviewPrs = transformReviewPRs(rawReviewPrs);
       if (reviewPrs.length > 0 && process.env.LINEAR_API_KEY) {
         const idRe = /[A-Z]+-\d+/gi;
@@ -222,7 +232,8 @@ export async function GET(request: Request) {
         }
       }
 
-      // Final emit
+      // Final emit — step 10
+      currentStep = TOTAL_STEPS;
       buildAndEmit(true);
       controller.close();
     },

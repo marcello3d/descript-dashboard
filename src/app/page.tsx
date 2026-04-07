@@ -876,6 +876,7 @@ function useWorkItems(intervalMs = 300000) {
   const [recent, setRecent] = useState<ApiCallRecord[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ step: number; totalSteps: number } | null>(null);
   const fetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
@@ -892,6 +893,8 @@ function useWorkItems(intervalMs = 300000) {
     setStats(json.stats ?? []);
     setRecent(json.recent ?? []);
     setErrors(json.errors ?? []);
+    if (json.progress) setProgress(json.progress);
+    if (json.done) setProgress(null);
   }, []);
 
   const doFetch = useCallback(async (bypassCache: boolean) => {
@@ -947,7 +950,7 @@ function useWorkItems(intervalMs = 300000) {
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
 
-  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, refresh };
+  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, refresh };
 }
 
 function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string; onChange: (v: string) => void }) {
@@ -993,7 +996,7 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, refresh: refreshAll } = useWorkItems();
+  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, refresh: refreshAll } = useWorkItems();
 
   const searchParams = useSearchParams();
 
@@ -1150,6 +1153,11 @@ function Home() {
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
         </span>
+        {progress && (
+          <span className="text-[11px] text-text-tertiary tabular-nums">
+            {progress.step}/{progress.totalSteps}
+          </span>
+        )}
         <button
           onClick={refreshAll}
           disabled={anyLoading}
