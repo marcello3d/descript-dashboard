@@ -263,25 +263,40 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
   });
 }
 
+function reviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): { personal: number; team: number; draft: number } {
+  const built = buildReviewItems(prs, issues);
+  let personal = 0, team = 0, draft = 0;
+  for (const item of built) {
+    if (item.pr?.draft) { draft++; }
+    else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) { personal++; }
+    else { team++; }
+  }
+  return { personal, team, draft };
+}
+
 function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void }) {
   const groups = useMemo(() => {
     const built = buildReviewItems(prs, issues);
     const favs: ReviewItem[] = [];
-    const direct: ReviewItem[] = [];
-    const team: ReviewItem[] = [];
+    const directReady: ReviewItem[] = [];
+    const directDraft: ReviewItem[] = [];
+    const teamReady: ReviewItem[] = [];
+    const teamDraft: ReviewItem[] = [];
     for (const item of built) {
       if (favorites.has(item.key)) {
         favs.push(item);
       } else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) {
-        direct.push(item);
+        (item.pr?.draft ? directDraft : directReady).push(item);
       } else {
-        team.push(item);
+        (item.pr?.draft ? teamDraft : teamReady).push(item);
       }
     }
     const groups: { label: string; items: ReviewItem[] }[] = [];
     if (favs.length > 0) groups.push({ label: "Favorites", items: favs });
-    if (direct.length > 0) groups.push({ label: "Individually requested", items: direct });
-    if (team.length > 0) groups.push({ label: "Team requested", items: team });
+    if (directReady.length > 0) groups.push({ label: "Individually requested", items: directReady });
+    if (teamReady.length > 0) groups.push({ label: "Team requested", items: teamReady });
+    if (directDraft.length > 0) groups.push({ label: "Individually requested — draft", items: directDraft });
+    if (teamDraft.length > 0) groups.push({ label: "Team requested — draft", items: teamDraft });
     return groups;
   }, [prs, issues, viewerLogin, favorites]);
   const colCount = 7;
@@ -912,19 +927,31 @@ function Home() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [view, setViewState] = useState<ViewMode>("stage");
+  type Tab = "tasks" | "review";
+  type SortMode = "stage" | "priority" | "date";
+  const [tab, setTabState] = useState<Tab>("tasks");
+  const [sort, setSortState] = useState<SortMode>("stage");
   const [repoFilter, setRepoFilterState] = useState("descript");
 
   // Sync from URL on mount
   useEffect(() => {
-    const v = searchParams.get("view") as ViewMode;
+    const t = searchParams.get("tab") as Tab;
+    const s = searchParams.get("sort") as SortMode;
     const r = searchParams.get("repo");
-    if (v && v !== view) setViewState(v);
+    // Migrate legacy "view" param
+    const legacyView = searchParams.get("view") as string;
+    if (legacyView) {
+      if (legacyView === "review") { setTabState("review"); }
+      else if (legacyView === "stage" || legacyView === "priority" || legacyView === "date") { setSortState(legacyView); }
+    }
+    if (t) setTabState(t);
+    if (s && (s === "stage" || s === "priority" || s === "date")) setSortState(s);
     if (r && r !== repoFilter) setRepoFilterState(r);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setParam = useCallback((key: string, value: string, defaultValue: string) => {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("view"); // clean up legacy param
     if (value === defaultValue) {
       params.delete(key);
     } else {
@@ -934,9 +961,11 @@ function Home() {
     router.replace(qs ? `?${qs}` : "/", { scroll: false });
   }, [searchParams, router]);
 
-  const setView = useCallback((v: ViewMode) => { setViewState(v); setParam("view", v, "stage"); }, [setParam]);
-  const isOpen = view === "stage" || view === "priority";
-  const isReview = view === "review";
+  const setTab = useCallback((t: Tab) => { setTabState(t); setParam("tab", t, "tasks"); }, [setParam]);
+  const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
+  const view = tab === "review" ? "review" as ViewMode : sort as ViewMode;
+  const isOpen = sort === "stage" || sort === "priority";
+  const isReview = tab === "review";
   const setRepoFilter = useCallback((v: string) => { setRepoFilterState(v); setParam("repo", v, "descript"); }, [setParam]);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
@@ -1027,17 +1056,29 @@ function Home() {
             {repos.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         )}
-        <h1 className="text-lg font-bold text-text-primary">
-          Dashboard
-          {open.length > 0 && (() => {
+        <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
+        <ToggleGroup
+          options={[
+            { value: "tasks" as const, label: "My tasks" },
+            { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}` },
+          ]}
+          value={isReview ? "review" as const : "tasks" as const}
+          onChange={(v) => setTab(v as Tab)}
+        />
+        <span className="text-sm text-text-tertiary">
+          {isReview ? (() => {
+            const s = reviewSummary(reviewPrs, reviewIssues, viewerLogin);
+            const parts: string[] = [];
+            if (s.personal > 0) parts.push(`${s.personal} personal`);
+            if (s.team > 0) parts.push(`${s.team} team`);
+            if (s.draft > 0) parts.push(`${s.draft} draft`);
+            return parts.join(" · ");
+          })() : (() => {
+            if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
-            return (
-              <span className="text-sm font-normal text-text-tertiary ml-2">
-                {stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ")}
-              </span>
-            );
+            return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
-        </h1>
+        </span>
         <button
           onClick={refreshAll}
           disabled={anyLoading}
@@ -1062,23 +1103,17 @@ function Home() {
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
         <div className="flex-1" />
-        <ToggleGroup
-          options={[
-            { value: "stage" as ViewMode, label: "Status" },
-            { value: "priority" as ViewMode, label: "Priority" },
-            { value: "date" as ViewMode, label: "All" },
-          ]}
-          value={isReview ? null : view}
-          onChange={(v) => setView(v)}
-        />
-        <div className="flex rounded-md border border-border overflow-hidden">
-          <button
-            onClick={() => setView(isReview ? "stage" : "review")}
-            className={`text-xs px-2.5 py-1 transition-colors ${isReview ? "toggle-active" : "toggle-inactive"}`}
-          >
-            Requested reviews{(() => { const n = buildReviewItems(reviewPrs, reviewIssues).length; return n > 0 ? ` (${n})` : ""; })()}
-          </button>
-        </div>
+        {!isReview && (
+          <ToggleGroup
+            options={[
+              { value: "stage" as ViewMode, label: "Status" },
+              { value: "priority" as ViewMode, label: "Priority" },
+              { value: "date" as ViewMode, label: "All" },
+            ]}
+            value={sort}
+            onChange={(v) => setSort(v as SortMode)}
+          />
+        )}
       </header>
 
       {serviceErrors.length > 0 && (
