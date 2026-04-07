@@ -1059,7 +1059,7 @@ function Home() {
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
-            { value: "tasks" as const, label: "My tasks" },
+            { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}` },
             { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}` },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
