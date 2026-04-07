@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
@@ -921,11 +921,53 @@ function useWorkItems(intervalMs = 300000) {
   return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, refresh };
 }
 
+function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const label = value === "all" ? "All repos" : value;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs text-text-tertiary hover:text-text-secondary transition-colors px-1.5 py-0.5 rounded hover:bg-surface-hover"
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[140px]">
+          {[{ value: "all", label: "All repos" }, ...repos.map(r => ({ value: r, label: r }))].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`block w-full text-left text-xs px-3 py-1.5 transition-colors ${
+                value === opt.value ? "text-text-primary bg-surface-hover" : "text-text-secondary hover:bg-surface-hover"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Home() {
   const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, refresh: refreshAll } = useWorkItems();
 
   const searchParams = useSearchParams();
-  const router = useRouter();
+
 
   type Tab = "tasks" | "review";
   type SortMode = "stage" | "priority" | "date";
@@ -958,8 +1000,8 @@ function Home() {
       params.set(key, value);
     }
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : "/", { scroll: false });
-  }, [searchParams, router]);
+    window.history.replaceState(null, "", qs ? `?${qs}` : "/");
+  }, [searchParams]);
 
   const setTab = useCallback((t: Tab) => { setTabState(t); setParam("tab", t, "tasks"); }, [setParam]);
   const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
@@ -1031,31 +1073,31 @@ function Home() {
 
   const displayItems = displayGroups.flatMap(g => g.items);
 
-  useEffect(() => {
-    if (displayGroups.length === 0 || !isOpen) {
-      document.title = "Dashboard";
-      return;
+  const pageTitle = useMemo(() => {
+    const section = isReview ? "Requested reviews" : "My tasks";
+    let summary = "";
+    if (isReview) {
+      const s = reviewSummary(reviewPrs, reviewIssues, viewerLogin);
+      const parts: string[] = [];
+      if (s.personal > 0) parts.push(`${s.personal} personal`);
+      if (s.team > 0) parts.push(`${s.team} team`);
+      if (s.draft > 0) parts.push(`${s.draft} draft`);
+      summary = parts.join(" · ");
+    } else if (open.length > 0) {
+      const stageGroups = groupByAction(sortByDate(open), new Set());
+      summary = stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
     }
-    const parts = displayGroups
-      .filter(g => g.group !== "draft" && g.group !== "other")
-      .map(g => `${g.items.length} ${g.label.toLowerCase()}`);
-    document.title = parts.length > 0 ? `(${parts.join(", ")}) Dashboard` : "Dashboard";
-  }, [displayGroups, isOpen]);
+    return summary ? `${section} · ${summary}` : section;
+  }, [isReview, reviewPrs, reviewIssues, viewerLogin, open]);
+
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
 
 
   return (
     <div className="w-full px-4 py-4">
       <header className="flex items-center gap-3 mb-3 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
-        {repos.length > 1 && (
-          <select
-            value={repoFilter}
-            onChange={(e) => setRepoFilter(e.target.value)}
-            className="text-xs border border-border rounded-md px-2 py-1 text-text-secondary bg-surface"
-          >
-            <option value="all">All repos</option>
-            {repos.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        )}
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
@@ -1114,6 +1156,7 @@ function Home() {
             onChange={(v) => setSort(v as SortMode)}
           />
         )}
+        {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
       </header>
 
       {serviceErrors.length > 0 && (
