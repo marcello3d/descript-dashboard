@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
-import { fetchAuthoredPRs, fetchReviewRequestedPRs } from "@/lib/github";
+import { fetchAuthoredPRs, fetchReviewRequestedPRs, fetchPrsByUrls } from "@/lib/github";
 import { fetchAssignedIssues, fetchSubscribedIssues, fetchIssuesByIdentifiers } from "@/lib/linear";
 import { fetchBGAJobs } from "@/lib/cursor";
 import { getCached, setCache, logApiCall, dedupe, getApiCallStats, getRecentApiCalls } from "@/lib/cache";
-import { buildWorkItems, findMissingLinearIds } from "@/lib/work-items";
+import { buildWorkItems, findMissingLinearIds, findMissingPrUrls } from "@/lib/work-items";
 import type { WorkItem, LinearIssue, GitHubPR, CursorAgent } from "@/types";
 
 const CACHE_KEY_GITHUB_REVIEWS = "github:reviewPrs";
@@ -92,6 +92,42 @@ export async function GET(request: Request) {
         }
       } catch (e: any) {
         errors.push(`linear-lookup: ${e.message}`);
+      }
+    }
+
+    // Phase 3b: Look up GitHub PRs referenced in Linear prUrls but not in search results
+    const knownPrUrls = new Set(githubResult.prs.map(pr => pr.url));
+    const missingPrUrls = findMissingPrUrls(items, knownPrUrls);
+
+    if (missingPrUrls.length > 0 && process.env.GITHUB_TOKEN) {
+      try {
+        const cacheKey = `github:pr-lookup:${missingPrUrls.sort().join(",")}`;
+        const cachedLookup = getCached<GitHubPR[]>(cacheKey);
+        let extraPrs: GitHubPR[];
+
+        if (cachedLookup) {
+          logApiCall("github", "pr-lookup", "cached", 0);
+          extraPrs = cachedLookup;
+        } else {
+          const lookupStart = Date.now();
+          extraPrs = await dedupe(cacheKey, () =>
+            fetchPrsByUrls(process.env.GITHUB_TOKEN!, missingPrUrls)
+          );
+          logApiCall("github", "pr-lookup", "ok", Date.now() - lookupStart);
+          setCache(cacheKey, extraPrs, CACHE_TTL_GITHUB);
+        }
+
+        if (extraPrs.length > 0) {
+          const allPrs = [...githubResult.prs, ...extraPrs];
+          // Collect all known issues (original + any extras from Phase 3)
+          const issueById = new Map(linearResult.issues.map(i => [i.id, i]));
+          for (const item of items) {
+            if (item.linear && !issueById.has(item.linear.id)) issueById.set(item.linear.id, item.linear);
+          }
+          items = buildWorkItems([...issueById.values()], allPrs, cursorResult.agents);
+        }
+      } catch (e: any) {
+        errors.push(`github-pr-lookup: ${e.message}`);
       }
     }
 

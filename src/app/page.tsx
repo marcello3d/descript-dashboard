@@ -582,7 +582,7 @@ function ToggleGroup<T extends string>({
   onChange,
 }: {
   options: { value: T; label: string }[];
-  value: T;
+  value: T | null;
   onChange: (v: T) => void;
 }) {
   return (
@@ -948,6 +948,7 @@ function Home() {
       const isVerify = item.linear?.status.toLowerCase() === "verify";
       const isClosed =
         (item.pr?.merged && !isVerify) ||
+        item.pr?.closed ||
         item.linear?.status.toLowerCase() === "canceled" ||
         item.linear?.status.toLowerCase() === "cancelled" ||
         cursorOnly;
@@ -1032,14 +1033,21 @@ function Home() {
         <div className="flex-1" />
         <ToggleGroup
           options={[
-            { value: "stage" as ViewMode, label: "Stage" },
-            { value: "date" as ViewMode, label: "Date" },
+            { value: "stage" as ViewMode, label: "Status" },
             { value: "priority" as ViewMode, label: "Priority" },
-            { value: "review" as ViewMode, label: `Review${(() => { const n = buildReviewItems(reviewPrs, reviewIssues).length; return n > 0 ? ` (${n})` : ""; })()}` },
+            { value: "date" as ViewMode, label: "All" },
           ]}
-          value={view}
-          onChange={setView}
+          value={isReview ? null : view}
+          onChange={(v) => setView(v)}
         />
+        <div className="flex rounded-md border border-border overflow-hidden">
+          <button
+            onClick={() => setView(isReview ? "stage" : "review")}
+            className={`text-xs px-2.5 py-1 transition-colors ${isReview ? "toggle-active" : "toggle-inactive"}`}
+          >
+            Review{(() => { const n = buildReviewItems(reviewPrs, reviewIssues).length; return n > 0 ? ` (${n})` : ""; })()}
+          </button>
+        </div>
       </header>
 
       {serviceErrors.length > 0 && (

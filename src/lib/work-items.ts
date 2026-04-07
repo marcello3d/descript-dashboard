@@ -125,6 +125,25 @@ export function getLastUpdatedSource(item: WorkItem): { date: string; source: st
 }
 
 /**
+ * Find GitHub PR URLs from Linear prUrls that don't have a matched GitHubPR object.
+ */
+export function findMissingPrUrls(
+  items: WorkItem[],
+  knownPrUrls: Set<string>
+): string[] {
+  const missing = new Set<string>();
+  for (const item of items) {
+    if (item.pr) continue; // already has a PR
+    if (item.linear?.prUrls) {
+      for (const url of item.linear.prUrls) {
+        if (!knownPrUrls.has(url)) missing.add(url);
+      }
+    }
+  }
+  return [...missing];
+}
+
+/**
  * Find Linear identifiers referenced in PRs/agents that aren't in the known issues list.
  */
 export function findMissingLinearIds(
