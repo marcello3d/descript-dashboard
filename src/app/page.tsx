@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useServiceData } from "@/lib/hooks";
 import { SiLinear, SiGithub } from "react-icons/si";
 import type { LinearIssue, GitHubPR, CursorAgent, WorkItem } from "@/types";
@@ -105,6 +106,12 @@ function buildWorkItems(
       }
     }
     if (!matched) {
+      console.warn(`[link] Unmatched agent: ${agent.url}`, {
+        prUrl: agent.prUrl,
+        branch: agent.branch,
+        name: agent.name,
+        existingPrUrls: [...items.values()].filter(i => i.pr).map(i => i.pr!.url),
+      });
       const id = `agent-${agent.id}`;
       items.set(id, { id, title: agent.name || agent.id, agents: [agent] });
     }
@@ -307,18 +314,23 @@ function WorkItemTable({
   github,
   cursor,
   dimmed,
+  favorites,
+  onToggleFavorite,
 }: {
   groups: { label: string; items: WorkItem[] }[];
   linear: { connected: boolean | null; error?: string | null };
   github: { connected: boolean | null; error?: string | null };
   cursor: { connected: boolean | null; error?: string | null };
   dimmed?: boolean;
+  favorites: Set<string>;
+  onToggleFavorite: (id: string) => void;
 }) {
-  const colCount = 8;
+  const colCount = 9;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead>
         <tr className="border-b border-gray-200">
+          <th className="w-[24px] px-0"></th>
           <th className="text-right py-2 px-2 w-[70px]">
             <span className="text-xs font-medium text-gray-500">Updated</span>
           </th>
@@ -338,7 +350,7 @@ function WorkItemTable({
           <th className="text-left py-2 px-2 w-[120px]">
             <span className="text-xs font-medium text-gray-500">Status</span>
           </th>
-          <th className="text-right py-2 px-2 w-px whitespace-nowrap">
+          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-gray-500">Changes</span>
           </th>
         </tr>
@@ -359,6 +371,15 @@ function WorkItemTable({
               key={item.id}
               className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors"
             >
+              <td className="py-1.5 px-0 text-center w-[24px]">
+                <button
+                  onClick={() => onToggleFavorite(item.id)}
+                  className={`text-sm leading-none ${favorites.has(item.id) ? "text-yellow-400" : "text-gray-200 hover:text-yellow-300"} transition-colors`}
+                  title={favorites.has(item.id) ? "Unfavorite" : "Favorite"}
+                >
+                  {favorites.has(item.id) ? "★" : "☆"}
+                </button>
+              </td>
               <td className="py-1.5 px-2 text-right">
                 {lastUpdated && (() => {
                   const { text, color } = timeAgo(lastUpdated);
@@ -449,9 +470,18 @@ function WorkItemTable({
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                <div className="flex items-center py-1.5 px-2 -my-1">
-                  <UnifiedStatus item={item} />
-                </div>
+                {(() => {
+                  const href = item.pr?.url ?? item.linear?.url ?? item.agents[0]?.url;
+                  return href ? (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="flex items-center py-1.5 px-2 -my-1 rounded hover:bg-gray-100 transition-colors">
+                      <UnifiedStatus item={item} />
+                    </a>
+                  ) : (
+                    <div className="flex items-center py-1.5 px-2 -my-1">
+                      <UnifiedStatus item={item} />
+                    </div>
+                  );
+                })()}
               </td>
               {(() => {
                 const files = item.pr?.changedFiles ?? item.agents[0]?.filesChanged ?? 0;
@@ -485,7 +515,7 @@ function WorkItemTable({
 }
 
 type FilterMode = "open" | "closed" | "all";
-type SortMode = "date" | "priority";
+type SortMode = "stage" | "date" | "priority";
 
 function ToggleGroup<T extends string>({
   options,
@@ -538,46 +568,288 @@ const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
 
 const ACTION_GROUP_ORDER: ActionGroup[] = ["ready", "changes", "review", "draft", "other"];
 
-function groupByAction(items: WorkItem[]): { group: ActionGroup; label: string; items: WorkItem[] }[] {
+function groupByAction(items: WorkItem[], favorites: Set<string>): { group: ActionGroup; label: string; items: WorkItem[] }[] {
+  const favItems: WorkItem[] = [];
   const map = new Map<ActionGroup, WorkItem[]>();
   for (const item of items) {
+    if (favorites.has(item.id)) {
+      favItems.push(item);
+      continue;
+    }
     const g = getActionGroup(item);
     const list = map.get(g) || [];
     list.push(item);
     map.set(g, list);
   }
-  return ACTION_GROUP_ORDER
+  const groups = ACTION_GROUP_ORDER
     .filter(g => map.has(g))
     .map(g => ({ group: g, label: ACTION_GROUP_LABELS[g], items: map.get(g)! }));
+  if (favItems.length > 0) {
+    groups.unshift({ group: "other" as ActionGroup, label: "Favorites", items: favItems });
+  }
+  return groups;
 }
 
-function sortItems(items: WorkItem[], sort: SortMode): WorkItem[] {
-  return [...items].sort((a, b) => {
-    if (sort === "priority") {
-      // Priority: 1=urgent, 4=low, 0=none. Put 0 last.
-      const ap = a.linear?.priority ?? 0;
-      const bp = b.linear?.priority ?? 0;
-      const aNorm = ap === 0 ? 99 : ap;
-      const bNorm = bp === 0 ? 99 : bp;
-      if (aNorm !== bNorm) return aNorm - bNorm;
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "Urgent",
+  2: "High",
+  3: "Medium",
+  4: "Low",
+  0: "No priority",
+};
+
+function groupByPriority(items: WorkItem[], favorites: Set<string>): { group: ActionGroup; label: string; items: WorkItem[] }[] {
+  const favItems: WorkItem[] = [];
+  const map = new Map<number, WorkItem[]>();
+  for (const item of items) {
+    if (favorites.has(item.id)) { favItems.push(item); continue; }
+    const p = item.linear?.priority ?? 0;
+    const list = map.get(p) || [];
+    list.push(item);
+    map.set(p, list);
+  }
+  const groups = [1, 2, 3, 4, 0]
+    .filter(p => map.has(p))
+    .map(p => ({ group: "other" as ActionGroup, label: PRIORITY_LABELS[p], items: map.get(p)! }));
+  if (favItems.length > 0) {
+    groups.unshift({ group: "other" as ActionGroup, label: "Favorites", items: favItems });
+  }
+  return groups;
+}
+
+function sortByDate(items: WorkItem[]): WorkItem[] {
+  return [...items].sort((a, b) => getLastUpdated(b).localeCompare(getLastUpdated(a)));
+}
+
+interface ApiCallRecord {
+  service: string;
+  endpoint: string;
+  status: string;
+  duration_ms: number;
+  cost: number | null;
+  error: string | null;
+  created_at: number;
+  cache_hits: number;
+}
+
+interface ApiStatRow {
+  service: string;
+  total: number;
+  ok: number;
+  cached: number;
+  errors: number;
+  last_call: number;
+}
+
+type RateLimitInfo = { name: string; cost?: number; remaining: number; limit: number; resetAt: string };
+
+function RateLimitBar({ rl }: { rl: RateLimitInfo }) {
+  const pct = Math.round((rl.remaining / rl.limit) * 100);
+  const resetTime = new Date(rl.resetAt).toLocaleTimeString();
+  return (
+    <div>
+      <div className="flex justify-between text-[11px] text-gray-500 mb-0.5">
+        <span>{rl.name} <span className="text-gray-300">resets {resetTime}</span></span>
+        <span className="tabular-nums">{rl.remaining}/{rl.limit} ({pct}%)</span>
+      </div>
+      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${pct > 20 ? "bg-green-400" : pct > 5 ? "bg-yellow-400" : "bg-red-400"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ApiStatsPopover({ rateLimits }: { rateLimits: RateLimitInfo[] }) {
+  const [open, setOpen] = useState(false);
+  const [stats, setStats] = useState<ApiStatRow[]>([]);
+  const [recent, setRecent] = useState<ApiCallRecord[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/stats")
+      .then(r => r.json())
+      .then(json => {
+        setStats(json.stats ?? []);
+        setRecent(json.recent ?? []);
+      })
+      .catch(() => {});
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    return getLastUpdated(b).localeCompare(getLastUpdated(a));
-  });
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  // Show the most constrained rate limit in the button
+  const primary = rateLimits.reduce((a, b) => (a.remaining / a.limit) < (b.remaining / b.limit) ? a : b);
+  const color = primary.remaining / primary.limit < 0.02 ? "text-yellow-600" : "text-gray-300";
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`text-[11px] tabular-nums hover:text-gray-500 transition-colors ${color}`}
+        title={rateLimits.map(rl => `${rl.name}: ${rl.remaining}/${rl.limit}`).join(" · ")}
+      >
+        {rateLimits.map(rl => `${rl.remaining}/${rl.limit}`).join(" · ")}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-[360px] text-xs">
+          <div className="font-medium text-gray-700 mb-2">API Usage</div>
+
+          {/* Rate limit bars */}
+          <div className="mb-3 space-y-2">
+            {rateLimits.map(rl => <RateLimitBar key={rl.name} rl={rl} />)}
+          </div>
+
+          {/* Stats summary */}
+          {stats.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[11px] font-medium text-gray-500 mb-1">Calls (last hour)</div>
+              <div className="grid grid-cols-5 gap-x-2 text-[11px]">
+                <span className="text-gray-400">Service</span>
+                <span className="text-gray-400 text-right">Total</span>
+                <span className="text-gray-400 text-right">API</span>
+                <span className="text-gray-400 text-right">Cached</span>
+                <span className="text-gray-400 text-right">Errors</span>
+                {stats.map(s => (
+                  <React.Fragment key={s.service}>
+                    <span className="text-gray-700 capitalize">{s.service}</span>
+                    <span className="text-gray-600 text-right tabular-nums">{s.total}</span>
+                    <span className="text-gray-600 text-right tabular-nums">{s.ok}</span>
+                    <span className="text-gray-600 text-right tabular-nums">{s.cached}</span>
+                    <span className={`text-right tabular-nums ${s.errors > 0 ? "text-red-500" : "text-gray-600"}`}>{s.errors}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent calls (actual API hits only) */}
+          {recent.length > 0 && (
+            <div>
+              <div className="text-[11px] font-medium text-gray-500 mb-1">Recent API calls</div>
+              <div className="max-h-[200px] overflow-y-auto space-y-0.5">
+                {recent.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11px] py-0.5">
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.status === "error" ? "bg-red-400" : "bg-green-400"}`} />
+                    <span className="text-gray-500 tabular-nums whitespace-nowrap flex-shrink-0">{new Date(r.created_at).toLocaleTimeString()}</span>
+                    <span className="text-gray-700 capitalize w-[44px] flex-shrink-0">{r.service}</span>
+                    <span className="text-gray-500 flex-1 truncate">{r.endpoint}</span>
+                    {r.cost != null && <span className="text-orange-400 tabular-nums whitespace-nowrap" title="Rate limit points consumed">cost {r.cost}</span>}
+                    {r.duration_ms > 0 && <span className="text-gray-400 tabular-nums whitespace-nowrap">{r.duration_ms}ms</span>}
+                    {r.cache_hits > 0 && <span className="text-gray-300 tabular-nums whitespace-nowrap" title={`${r.cache_hits} cache hits since`}>+{r.cache_hits} cached</span>}
+                    {r.error && <span className="text-red-400 truncate max-w-[100px]" title={r.error}>err</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default function Home() {
+export default function Page() {
+  return (
+    <Suspense>
+      <Home />
+    </Suspense>
+  );
+}
+
+function Home() {
   const linear = useServiceData<LinearIssue>("/api/linear/issues");
   const github = useServiceData<GitHubPR>("/api/github/prs");
   const cursor = useServiceData<CursorAgent>("/api/cursor/agents");
 
-  const [filter, setFilter] = useState<FilterMode>("open");
-  const [sort, setSort] = useState<SortMode>("date");
-  const [repoFilter, setRepoFilter] = useState<string>("descript");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const filter = (searchParams.get("filter") as FilterMode) || "open";
+  const sort = (searchParams.get("sort") as SortMode) || "stage";
+  const repoFilter = searchParams.get("repo") || "descript";
+
+  const setParam = useCallback((key: string, value: string, defaultValue: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === defaultValue) {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : "/", { scroll: false });
+  }, [searchParams, router]);
+
+  const setFilter = useCallback((v: FilterMode) => setParam("filter", v, "open"), [setParam]);
+  const setSort = useCallback((v: SortMode) => setParam("sort", v, "stage"), [setParam]);
+  const setRepoFilter = useCallback((v: string) => setParam("repo", v, "descript"), [setParam]);
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const saved = localStorage.getItem("dashboard:favorites");
+      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  const toggleFavorite = useCallback((id: string) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      localStorage.setItem("dashboard:favorites", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  // Fetch Linear issues for PRs that have identifiers but weren't in assigned issues
+  const [extraLinear, setExtraLinear] = useState<LinearIssue[]>([]);
+  const allLinear = useMemo(() => {
+    const base = linear.data ?? [];
+    const seen = new Set(base.map(i => i.identifier));
+    return [...base, ...extraLinear.filter(i => !seen.has(i.identifier))];
+  }, [linear.data, extraLinear]);
 
   const allUnfilteredItems = useMemo(
-    () => buildWorkItems(linear.data ?? [], github.data ?? [], cursor.data ?? []),
-    [linear.data, github.data, cursor.data]
+    () => buildWorkItems(allLinear, github.data ?? [], cursor.data ?? []),
+    [allLinear, github.data, cursor.data]
   );
+
+  // Find PRs/agents with Linear identifiers that didn't match any issue
+  const lookupInFlightRef = useRef(false);
+  const lastLookupKeyRef = useRef("");
+  useEffect(() => {
+    const knownIds = new Set(allLinear.map(i => i.identifier.toLowerCase()));
+    const missingIds = new Set<string>();
+    const idRe = /[A-Z]+-\d+/gi;
+    for (const item of allUnfilteredItems) {
+      if (item.linear) continue;
+      const text = `${item.pr?.branch ?? ""} ${item.pr?.title ?? ""} ${item.agents.map(a => `${a.branch} ${a.name}`).join(" ")}`;
+      for (const match of text.matchAll(idRe)) {
+        const id = match[0].toUpperCase();
+        if (!knownIds.has(id.toLowerCase())) missingIds.add(id);
+      }
+    }
+    if (missingIds.size === 0) return;
+    const key = [...missingIds].sort().join(",");
+    if (lookupInFlightRef.current || key === lastLookupKeyRef.current) return;
+    lookupInFlightRef.current = true;
+    lastLookupKeyRef.current = key;
+    fetch(`/api/linear/lookup?ids=${key}`)
+      .then(r => r.json())
+      .then(json => {
+        if (json.data?.length) setExtraLinear(json.data);
+      })
+      .catch(() => {})
+      .finally(() => { lookupInFlightRef.current = false; });
+  }, [allUnfilteredItems, allLinear]);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -618,12 +890,13 @@ export default function Home() {
   const displayGroups = useMemo(() => {
     const items =
       filter === "open" ? open : filter === "closed" ? closed : allItems;
-    const sorted = sortItems(items, sort);
+    const sorted = sortByDate(items);
     if (filter === "open") {
-      return groupByAction(sorted);
+      if (sort === "stage") return groupByAction(sorted, favorites);
+      if (sort === "priority") return groupByPriority(sorted, favorites);
     }
     return [{ group: "other" as ActionGroup, label: "", items: sorted }];
-  }, [filter, sort, open, closed, allItems]);
+  }, [filter, sort, open, closed, allItems, favorites]);
 
   const displayItems = displayGroups.flatMap(g => g.items);
 
@@ -646,70 +919,74 @@ export default function Home() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-4">
-      <header className="flex items-center justify-between mb-3">
+    <div className="w-full px-4 py-4">
+      <header className="flex items-center gap-3 mb-3">
+        {repos.length > 1 && (
+          <select
+            value={repoFilter}
+            onChange={(e) => setRepoFilter(e.target.value)}
+            className="text-xs border border-gray-200 rounded-md px-2 py-1 text-gray-600 bg-white"
+          >
+            <option value="all">All repos</option>
+            {repos.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        )}
         <h1 className="text-lg font-bold text-gray-900">
           Dashboard
-          {filter === "open" && displayGroups.length > 0 && (
-            <span className="text-sm font-normal text-gray-400 ml-2">
-              {displayGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ")}
-            </span>
-          )}
+          {filter === "open" && open.length > 0 && (() => {
+            const stageGroups = groupByAction(sortByDate(open), new Set());
+            return (
+              <span className="text-sm font-normal text-gray-400 ml-2">
+                {stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ")}
+              </span>
+            );
+          })()}
         </h1>
-        <div className="flex items-center gap-3">
-          <ToggleGroup
-            options={[
-              { value: "open" as FilterMode, label: "Open" },
-              { value: "closed" as FilterMode, label: "Closed" },
-              { value: "all" as FilterMode, label: "All" },
-            ]}
-            value={filter}
-            onChange={setFilter}
-          />
-          <ToggleGroup
-            options={[
-              { value: "date" as SortMode, label: "Date" },
-              { value: "priority" as SortMode, label: "Priority" },
-            ]}
-            value={sort}
-            onChange={setSort}
-          />
-          {repos.length > 1 && (
-            <select
-              value={repoFilter}
-              onChange={(e) => setRepoFilter(e.target.value)}
-              className="text-xs border border-gray-200 rounded-md px-2 py-1 text-gray-600 bg-white"
-            >
-              <option value="all">All repos</option>
-              {repos.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          )}
-          <button
-            onClick={refreshAll}
-            disabled={anyLoading}
-            className="text-gray-400 hover:text-gray-600 disabled:opacity-50 p-1"
-            title="Refresh all"
+        <button
+          onClick={refreshAll}
+          disabled={anyLoading}
+          className="text-gray-400 hover:text-gray-600 disabled:opacity-50 p-1"
+          title="Refresh all"
+        >
+          <svg
+            className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            <svg
-              className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
-          {github.rateLimit && (
-            <span className={`text-[11px] tabular-nums ${github.rateLimit.remaining < 100 ? "text-yellow-600" : "text-gray-300"}`} title={`Resets ${new Date(github.rateLimit.resetAt).toLocaleTimeString()}`}>
-              {github.rateLimit.remaining}/{github.rateLimit.limit}
-            </span>
-          )}
-        </div>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+        </button>
+        {(github.rateLimit || linear.rateLimit) && (
+          <ApiStatsPopover rateLimits={[
+            ...(github.rateLimit ? [{ name: "GitHub", ...github.rateLimit }] : []),
+            ...(linear.rateLimit ? [{ name: "Linear", ...linear.rateLimit }] : []),
+          ]} />
+        )}
+        <div className="flex-1" />
+        <ToggleGroup
+          options={[
+            { value: "open" as FilterMode, label: "Open" },
+            { value: "closed" as FilterMode, label: "Closed" },
+            { value: "all" as FilterMode, label: "All" },
+          ]}
+          value={filter}
+          onChange={setFilter}
+        />
+        <ToggleGroup
+          options={[
+            { value: "stage" as SortMode, label: "Stage" },
+            { value: "date" as SortMode, label: "Date" },
+            { value: "priority" as SortMode, label: "Priority" },
+          ]}
+          value={sort}
+          onChange={setSort}
+        />
       </header>
 
       {(linear.error || github.error || cursor.error) && (
@@ -731,6 +1008,8 @@ export default function Home() {
         github={github}
         cursor={cursor}
         dimmed={filter === "closed"}
+        favorites={favorites}
+        onToggleFavorite={toggleFavorite}
       />
 
       {displayItems.length === 0 && !anyLoading && (

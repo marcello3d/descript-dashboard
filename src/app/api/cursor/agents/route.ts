@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchBGAJobs } from "@/lib/cursor";
-import { getCached, setCache } from "@/lib/cache";
+import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
 import type { ServiceResponse, CursorAgent } from "@/types";
 
 const CACHE_KEY = "cursor:agents";
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
     if (!bypass) {
       const cached = getCached<CursorAgent[]>(CACHE_KEY);
       if (cached) {
+        logApiCall("cursor", "agents", "cached", 0);
         return NextResponse.json<ServiceResponse<CursorAgent>>(
           { connected: true, data: cached },
           { headers: CACHE_HEADERS }
@@ -32,20 +33,23 @@ export async function GET(request: Request) {
       }
     }
 
-    const agents = await fetchBGAJobs(apiKey);
+    const start = Date.now();
+    const agents = await dedupe("cursor:agents", () => fetchBGAJobs(apiKey));
+    logApiCall("cursor", "agents", "ok", Date.now() - start);
     setCache(CACHE_KEY, agents, CACHE_TTL);
     return NextResponse.json<ServiceResponse<CursorAgent>>(
       { connected: true, data: agents },
       { headers: CACHE_HEADERS }
     );
   } catch (e: any) {
-    const stale = getCached<CursorAgent[]>(CACHE_KEY);
+    const stale = getCached<CursorAgent[]>(CACHE_KEY, true);
     if (stale) {
       return NextResponse.json<ServiceResponse<CursorAgent>>(
         { connected: true, data: stale },
         { headers: CACHE_HEADERS }
       );
     }
+    logApiCall("cursor", "agents", "error", 0, { error: e.message });
     return NextResponse.json<ServiceResponse<CursorAgent>>(
       { connected: true, error: e.message },
     );

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import { fetchAuthoredPRs } from "@/lib/github";
-import { getCached, setCache } from "@/lib/cache";
+import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
 import type { ServiceResponse, GitHubPR } from "@/types";
 
 const CACHE_KEY = "github:prs";
@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     if (!bypass) {
       const cached = getCached<GitHubPR[]>(CACHE_KEY);
       if (cached) {
+        logApiCall("github", "prs", "cached", 0);
         const rl = getCached<ServiceResponse<GitHubPR>["rateLimit"]>(CACHE_KEY_RATE);
         return NextResponse.json<ServiceResponse<GitHubPR>>(
           { connected: true, data: cached, rateLimit: rl ?? undefined },
@@ -35,7 +36,9 @@ export async function GET(request: Request) {
       }
     }
 
-    const { prs, rateLimit } = await fetchAuthoredPRs(token);
+    const start = Date.now();
+    const { prs, rateLimit } = await dedupe("github:prs", () => fetchAuthoredPRs(token));
+    logApiCall("github", "prs", "ok", Date.now() - start, { cost: rateLimit?.cost });
     setCache(CACHE_KEY, prs, CACHE_TTL);
     if (rateLimit) setCache(CACHE_KEY_RATE, rateLimit, CACHE_TTL);
     return NextResponse.json<ServiceResponse<GitHubPR>>(
@@ -43,8 +46,8 @@ export async function GET(request: Request) {
       { headers: CACHE_HEADERS }
     );
   } catch (e: any) {
-    const stale = getCached<GitHubPR[]>(CACHE_KEY);
-    let rl = getCached<ServiceResponse<GitHubPR>["rateLimit"]>(CACHE_KEY_RATE);
+    const stale = getCached<GitHubPR[]>(CACHE_KEY, true);
+    let rl = getCached<ServiceResponse<GitHubPR>["rateLimit"]>(CACHE_KEY_RATE, true);
 
     // Try to get rate limit info even on error
     if (!rl) {
@@ -65,6 +68,7 @@ export async function GET(request: Request) {
       }
     }
 
+    logApiCall("github", "prs", "error", 0, { error: e.message });
     return NextResponse.json<ServiceResponse<GitHubPR>>(
       {
         connected: true,

@@ -8,17 +8,22 @@ export function useServiceData<T>(endpoint: string, intervalMs = 300000) {
   const [connected, setConnected] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [rateLimit, setRateLimit] = useState<{ remaining: number; limit: number; resetAt: string } | null>(null);
+  const [rateLimit, setRateLimit] = useState<{ cost?: number; remaining: number; limit: number; resetAt: string } | null>(null);
   const lastFetchRef = useRef(0);
+  const fetchingRef = useRef(false);
 
   const doFetch = useCallback(
     async (bypassCache: boolean) => {
+      // Prevent concurrent duplicate fetches (e.g. React StrictMode double-mount)
+      if (fetchingRef.current) return;
+
       // Skip if we fetched recently and not bypassing cache
       const now = Date.now();
       if (!bypassCache && now - lastFetchRef.current < intervalMs) {
         return;
       }
 
+      fetchingRef.current = true;
       setLoading(true);
       try {
         const url = bypassCache ? `${endpoint}${endpoint.includes("?") ? "&" : "?"}fresh=1` : endpoint;
@@ -35,6 +40,7 @@ export function useServiceData<T>(endpoint: string, intervalMs = 300000) {
         setError(e.message);
       } finally {
         setLoading(false);
+        fetchingRef.current = false;
       }
     },
     [endpoint, intervalMs]

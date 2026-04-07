@@ -43,7 +43,7 @@ export interface ServiceResponse<T> {
   connected: boolean;
   error?: string;
   data?: T[];
-  rateLimit?: { remaining: number; limit: number; resetAt: string };
+  rateLimit?: { cost?: number; remaining: number; limit: number; resetAt: string };
 }
 
 // A unified work item that links related PRs, issues, and agents
