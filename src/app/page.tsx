@@ -302,18 +302,19 @@ function ServiceHeader({
 }
 
 function WorkItemTable({
-  items,
+  groups,
   linear,
   github,
   cursor,
   dimmed,
 }: {
-  items: WorkItem[];
+  groups: { label: string; items: WorkItem[] }[];
   linear: { connected: boolean | null; error?: string | null };
   github: { connected: boolean | null; error?: string | null };
   cursor: { connected: boolean | null; error?: string | null };
   dimmed?: boolean;
 }) {
+  const colCount = 8;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead>
@@ -342,7 +343,15 @@ function WorkItemTable({
           </th>
         </tr>
       </thead>
-      <tbody>
+      {groups.map(({ label, items }) => (
+      <tbody key={label}>
+        {groups.length > 1 && (
+          <tr>
+            <td colSpan={colCount} className="pt-4 pb-1 px-2">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label} <span className="font-normal">({items.length})</span></span>
+            </td>
+          </tr>
+        )}
         {items.map((item) => {
           const lastUpdated = getLastUpdated(item);
           return (
@@ -470,6 +479,7 @@ function WorkItemTable({
           );
         })}
       </tbody>
+      ))}
     </table>
   );
 }
@@ -505,6 +515,42 @@ function ToggleGroup<T extends string>({
   );
 }
 
+type ActionGroup = "ready" | "review" | "changes" | "draft" | "other";
+
+function getActionGroup(item: WorkItem): ActionGroup {
+  if (item.pr) {
+    if (item.pr.merged) return "other";
+    if (item.pr.reviewDecision === "APPROVED") return "ready";
+    if (item.pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
+    if (item.pr.draft) return "draft";
+    return "review";
+  }
+  return "draft";
+}
+
+const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
+  ready: "Ready to merge",
+  review: "Waiting on review",
+  changes: "Changes requested",
+  draft: "In progress",
+  other: "Other",
+};
+
+const ACTION_GROUP_ORDER: ActionGroup[] = ["ready", "changes", "review", "draft", "other"];
+
+function groupByAction(items: WorkItem[]): { group: ActionGroup; label: string; items: WorkItem[] }[] {
+  const map = new Map<ActionGroup, WorkItem[]>();
+  for (const item of items) {
+    const g = getActionGroup(item);
+    const list = map.get(g) || [];
+    list.push(item);
+    map.set(g, list);
+  }
+  return ACTION_GROUP_ORDER
+    .filter(g => map.has(g))
+    .map(g => ({ group: g, label: ACTION_GROUP_LABELS[g], items: map.get(g)! }));
+}
+
 function sortItems(items: WorkItem[], sort: SortMode): WorkItem[] {
   return [...items].sort((a, b) => {
     if (sort === "priority") {
@@ -526,11 +572,29 @@ export default function Home() {
 
   const [filter, setFilter] = useState<FilterMode>("open");
   const [sort, setSort] = useState<SortMode>("date");
+  const [repoFilter, setRepoFilter] = useState<string>("descript");
 
-  const allItems = useMemo(
+  const allUnfilteredItems = useMemo(
     () => buildWorkItems(linear.data ?? [], github.data ?? [], cursor.data ?? []),
     [linear.data, github.data, cursor.data]
   );
+
+  const repos = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of allUnfilteredItems) {
+      if (item.pr) set.add(item.pr.repo.split("/").pop()!);
+      if (item.agents.length > 0) set.add(item.agents[0].repo.split("/").pop()!);
+    }
+    return Array.from(set).sort();
+  }, [allUnfilteredItems]);
+
+  const allItems = useMemo(() => {
+    if (repoFilter === "all") return allUnfilteredItems;
+    return allUnfilteredItems.filter(item => {
+      const repo = item.pr?.repo ?? item.agents[0]?.repo ?? "";
+      return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (!item.pr && item.agents.length === 0);
+    });
+  }, [allUnfilteredItems, repoFilter]);
 
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
@@ -551,24 +615,28 @@ export default function Home() {
     return { open, closed };
   }, [allItems]);
 
-  const displayItems = useMemo(() => {
+  const displayGroups = useMemo(() => {
     const items =
       filter === "open" ? open : filter === "closed" ? closed : allItems;
-    return sortItems(items, sort);
+    const sorted = sortItems(items, sort);
+    if (filter === "open") {
+      return groupByAction(sorted);
+    }
+    return [{ group: "other" as ActionGroup, label: "", items: sorted }];
   }, [filter, sort, open, closed, allItems]);
 
+  const displayItems = displayGroups.flatMap(g => g.items);
+
   useEffect(() => {
-    if (open.length === 0) {
+    if (displayGroups.length === 0 || filter !== "open") {
       document.title = "Dashboard";
       return;
     }
-    const approved = open.filter(i => i.pr?.reviewDecision === "APPROVED").length;
-    const needsReview = open.filter(i => i.pr && !i.pr.draft && !i.pr.merged && i.pr.reviewDecision !== "APPROVED" && i.pr.reviewDecision !== "CHANGES_REQUESTED").length;
-    const parts: string[] = [];
-    if (approved) parts.push(`${approved} ready`);
-    if (needsReview) parts.push(`${needsReview} reviewing`);
+    const parts = displayGroups
+      .filter(g => g.group !== "draft" && g.group !== "other")
+      .map(g => `${g.items.length} ${g.label.toLowerCase()}`);
     document.title = parts.length > 0 ? `(${parts.join(", ")}) Dashboard` : "Dashboard";
-  }, [open]);
+  }, [displayGroups, filter]);
 
   const anyLoading = linear.loading || github.loading || cursor.loading;
   const refreshAll = () => {
@@ -582,24 +650,11 @@ export default function Home() {
       <header className="flex items-center justify-between mb-3">
         <h1 className="text-lg font-bold text-gray-900">
           Dashboard
-          {open.length > 0 && (() => {
-            const needsReview = open.filter(i => i.pr && !i.pr.draft && !i.pr.merged && i.pr.reviewDecision !== "APPROVED" && i.pr.reviewDecision !== "CHANGES_REQUESTED").length;
-            const approved = open.filter(i => i.pr?.reviewDecision === "APPROVED").length;
-            const changesRequested = open.filter(i => i.pr?.reviewDecision === "CHANGES_REQUESTED").length;
-            const drafts = open.filter(i => i.pr?.draft).length;
-            const noPr = open.filter(i => !i.pr).length;
-            const parts: string[] = [];
-            if (approved) parts.push(`${approved} ready to merge`);
-            if (needsReview) parts.push(`${needsReview} waiting on review`);
-            if (changesRequested) parts.push(`${changesRequested} needs changes`);
-            if (drafts) parts.push(`${drafts} draft`);
-            if (noPr) parts.push(`${noPr} no PR`);
-            return (
-              <span className="text-sm font-normal text-gray-400 ml-2">
-                {parts.join(" · ")}
-              </span>
-            );
-          })()}
+          {filter === "open" && displayGroups.length > 0 && (
+            <span className="text-sm font-normal text-gray-400 ml-2">
+              {displayGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ")}
+            </span>
+          )}
         </h1>
         <div className="flex items-center gap-3">
           <ToggleGroup
@@ -619,6 +674,16 @@ export default function Home() {
             value={sort}
             onChange={setSort}
           />
+          {repos.length > 1 && (
+            <select
+              value={repoFilter}
+              onChange={(e) => setRepoFilter(e.target.value)}
+              className="text-xs border border-gray-200 rounded-md px-2 py-1 text-gray-600 bg-white"
+            >
+              <option value="all">All repos</option>
+              {repos.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
           <button
             onClick={refreshAll}
             disabled={anyLoading}
@@ -639,10 +704,15 @@ export default function Home() {
               />
             </svg>
           </button>
+          {github.rateLimit && (
+            <span className={`text-[11px] tabular-nums ${github.rateLimit.remaining < 100 ? "text-yellow-600" : "text-gray-300"}`} title={`Resets ${new Date(github.rateLimit.resetAt).toLocaleTimeString()}`}>
+              {github.rateLimit.remaining}/{github.rateLimit.limit}
+            </span>
+          )}
         </div>
       </header>
 
-      {(linear.error || github.error || cursor.error || github.rateLimit) && (
+      {(linear.error || github.error || cursor.error) && (
         <div className="mb-3 space-y-1">
           {linear.error && <p className="text-xs text-red-500">Linear: {linear.error}</p>}
           {github.error && (
@@ -651,18 +721,12 @@ export default function Home() {
               {github.rateLimit && <> &middot; resets {new Date(github.rateLimit.resetAt).toLocaleTimeString()}</>}
             </p>
           )}
-          {!github.error && github.rateLimit && (
-            <p className={`text-xs ${github.rateLimit.remaining < 100 ? "text-yellow-600" : "text-gray-400"}`}>
-              GitHub API: {github.rateLimit.remaining}/{github.rateLimit.limit} remaining
-              {github.rateLimit.remaining < 500 && <> &middot; resets {new Date(github.rateLimit.resetAt).toLocaleTimeString()}</>}
-            </p>
-          )}
           {cursor.error && <p className="text-xs text-red-500">Cursor: {cursor.error}</p>}
         </div>
       )}
 
       <WorkItemTable
-        items={displayItems}
+        groups={displayGroups}
         linear={linear}
         github={github}
         cursor={cursor}
