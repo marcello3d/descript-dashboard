@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Descript Dashboard
 
-## Getting Started
+Personal dashboard that aggregates work items from Linear, GitHub, and Cursor into a single view.
 
-First, run the development server:
+Matches Linear issues to GitHub PRs and Cursor background agents automatically by identifier (e.g. `DIO-123` in PR titles, branch names, and Linear attachments).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Setup
+
+1. Install dependencies:
+
+```sh
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy `.env.example` to `.env.local` and fill in your API keys:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```sh
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+You'll need:
 
-## Learn More
+- **`GITHUB_TOKEN`** -- [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope
+- **`LINEAR_API_KEY`** -- [Linear personal API key](https://linear.app/settings/api)
+- **`CURSOR_API_KEY`** -- Cursor API key (from Cursor Dashboard, Integrations)
 
-To learn more about Next.js, take a look at the following resources:
+All three are optional -- the dashboard works with any subset, just showing less data.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Start the dev server:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sh
+npm run dev
+```
 
-## Deploy on Vercel
+4. Open [http://localhost:4080](http://localhost:4080)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Features
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Unified view of Linear issues, GitHub PRs, and Cursor background agents
+- Automatic matching across services by Linear identifiers
+- Extracts Cursor agent links from GitHub PR descriptions
+- Open/closed filtering with status-based grouping (stage, priority)
+- Requested reviews tab with individual vs team request sections
+- Favorites (starred items) that pin to the top
+- SQLite-backed caching (Linear 5min, GitHub 5min, Cursor 2min) to minimize API calls
+- Dark mode support
+
+## Debugging
+
+```sh
+# Hit the API directly
+curl http://localhost:4080/api/work-items | jq
+
+# Bypass cache
+curl http://localhost:4080/api/work-items?fresh=1 | jq
+
+# Filter for a specific issue
+curl -s http://localhost:4080/api/work-items | jq '.items[] | select(.id == "DIO-123")'
+```
+
+API call stats are included in the response under `.stats` and `.recent`. The SQLite cache DB is stored at `.cache.db` in the project root -- delete it to force a full refresh.
