@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import { getCached, setCache } from "@/lib/cache";
 import type { GitHubPR } from "@/types";
 
 const CURSOR_AGENT_URL_RES = [
@@ -20,28 +21,32 @@ function extractCursorAgentUrl(body: string | null | undefined): string | null {
   return null;
 }
 
-// Cache GitHub login -> display name (persists across requests in the same process)
-const userNameCache = new Map<string, string>();
+const USER_NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day
 
-async function resolveUserNames(octokit: Octokit, logins: string[]): Promise<void> {
-  const unknown = logins.filter(l => l && !userNameCache.has(l));
-  const unique = [...new Set(unknown)];
-  if (unique.length === 0) return;
+async function resolveUserNames(octokit: Octokit, logins: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(logins.filter(Boolean))];
+  const names = new Map<string, string>();
 
   await Promise.all(
     unique.map(async (login) => {
+      const cacheKey = `github:user:${login}`;
+      const cached = getCached<string>(cacheKey);
+      if (cached !== null) {
+        if (cached !== login) names.set(login, cached);
+        return;
+      }
       try {
         const { data } = await octokit.rest.users.getByUsername({ username: login });
-        userNameCache.set(login, data.name ?? login);
+        const name = data.name ?? login;
+        setCache(cacheKey, name, USER_NAME_CACHE_TTL);
+        if (name !== login) names.set(login, name);
       } catch {
-        userNameCache.set(login, login);
+        setCache(cacheKey, login, USER_NAME_CACHE_TTL);
       }
     })
   );
-}
 
-function displayName(login: string): string {
-  return userNameCache.get(login) ?? login;
+  return names;
 }
 
 export interface GitHubRateLimit {
@@ -69,6 +74,7 @@ export interface RawGitHubPR {
   deletions: number;
   changedFiles: number;
   reviews: { login: string; state: string }[];
+  userDisplayName?: string; // resolved from GitHub API, present on review PRs
 }
 
 export interface RawGitHubResult {
@@ -99,7 +105,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
   return {
     id: raw.id,
     title: raw.title,
-    author: raw.userLogin,
+    author: raw.userDisplayName ?? raw.userLogin,
     authorLogin: raw.userLogin,
     repo: `${raw.owner}/${raw.repo}`,
     branch: raw.branch,
@@ -446,17 +452,16 @@ export async function fetchRawReviewRequestedPRs(
     if (pr) allPrs.push(pr);
   }
 
-  // Resolve GitHub logins to display names
-  await resolveUserNames(octokit, allPrs.map(pr => pr.userLogin));
+  // Resolve GitHub logins to display names and store in raw data
+  const names = await resolveUserNames(octokit, allPrs.map(pr => pr.userLogin));
+  for (const pr of allPrs) {
+    const name = names.get(pr.userLogin);
+    if (name) pr.userDisplayName = name;
+  }
 
   return { prs: allPrs };
 }
 
-// Transform review PRs with resolved display names
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {
-  return raw.map(r => {
-    const pr = transformPR(r);
-    pr.author = displayName(r.userLogin);
-    return pr;
-  });
+  return raw.map(transformPR);
 }
