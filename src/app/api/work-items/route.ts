@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
@@ -28,152 +27,213 @@ interface RateLimit {
   resetAt: string;
 }
 
-interface WorkItemsResponse {
-  items: WorkItem[];
-  reviewPrs: GitHubPR[];
-  reviewIssues: LinearIssue[];
-  rateLimits: { github?: RateLimit; githubSearch?: RateLimit; linear?: RateLimit };
-  errors: string[];
-}
-
 export async function GET(request: Request) {
   const bypass = new URL(request.url).searchParams.get("fresh") === "1";
+  const encoder = new TextEncoder();
 
-  const errors: string[] = [];
-  const rateLimits: WorkItemsResponse["rateLimits"] = {};
+  const stream = new ReadableStream({
+    async start(controller) {
+      // Mutable state that accumulates as services respond
+      let rawLinear: RawLinearIssue[] = [];
+      let rawGithub: RawGitHubPR[] = [];
+      let rawCursor: RawCursorAgent[] = [];
+      let rawReviewPrs: RawGitHubPR[] = [];
+      let rawReviewIssues: RawLinearIssue[] = [];
+      let viewerLogin = getCached<string>("github:viewerLogin") ?? "";
+      const rateLimits: { github?: RateLimit; githubSearch?: RateLimit; linear?: RateLimit } = {};
+      const errors: string[] = [];
 
-  // Phase 1: Fetch raw data from all services in parallel (cached at raw layer)
-  const [linearResult, githubResult, cursorResult, reviewResult, linearReviewResult] = await Promise.all([
-    fetchLinear(bypass, errors),
-    fetchGitHub(bypass, errors),
-    fetchCursor(bypass, errors),
-    fetchGitHubReviews(bypass, errors),
-    fetchLinearReviews(bypass, errors),
-  ]);
+      function buildAndEmit(done: boolean) {
+        const issues = transformIssues(rawLinear);
+        const prs = transformPRs(rawGithub);
+        const agents = transformAgents(rawCursor);
+        const items = buildWorkItems(issues, prs, agents);
+        const reviewPrs = transformReviewPRs(rawReviewPrs);
+        const reviewIssues = transformIssues(rawReviewIssues);
+        const line = JSON.stringify({
+          viewerLogin,
+          items,
+          reviewPrs,
+          reviewIssues,
+          rateLimits,
+          errors: [...errors],
+          stats: getApiCallStats(),
+          recent: getRecentApiCalls(100),
+          done,
+        });
+        controller.enqueue(encoder.encode(line + "\n"));
+      }
 
-  if (linearResult.rateLimit) rateLimits.linear = linearResult.rateLimit;
-  if (githubResult.rateLimit) rateLimits.github = githubResult.rateLimit;
-  if (githubResult.searchRateLimit) rateLimits.githubSearch = githubResult.searchRateLimit;
+      // Phase 0: Emit cached snapshot immediately (ignoring expiry)
+      rawLinear = getCached<RawLinearIssue[]>(CACHE_KEY_LINEAR, true) ?? [];
+      rawGithub = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB, true) ?? [];
+      rawCursor = getCached<RawCursorAgent[]>(CACHE_KEY_CURSOR, true) ?? [];
+      rawReviewPrs = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS, true) ?? [];
+      rawReviewIssues = getCached<RawLinearIssue[]>(CACHE_KEY_LINEAR_REVIEWS, true) ?? [];
+      const rl = getCached<RateLimit>(CACHE_KEY_LINEAR_RATE, true);
+      if (rl) rateLimits.linear = rl;
+      const ghrl = getCached<RateLimit>(CACHE_KEY_GITHUB_RATE, true);
+      if (ghrl) rateLimits.github = ghrl;
+      buildAndEmit(false);
 
-  // Phase 2: Transform raw data to app types (always fresh, never cached)
-  const issues = transformIssues(linearResult.raw);
-  const prs = transformPRs(githubResult.raw);
-  const agents = transformAgents(cursorResult.raw);
+      // Phase 1: Fire all fetches, emit as each completes
+      let emitNeeded = false;
 
-  let items = buildWorkItems(issues, prs, agents);
+      const fetches = [
+        fetchLinear(bypass, errors).then(r => {
+          rawLinear = r.raw;
+          if (r.rateLimit) rateLimits.linear = r.rateLimit;
+          emitNeeded = true;
+        }),
+        fetchGitHub(bypass, errors).then(r => {
+          rawGithub = r.raw;
+          if (r.rateLimit) rateLimits.github = r.rateLimit;
+          if (r.searchRateLimit) rateLimits.githubSearch = r.searchRateLimit;
+          emitNeeded = true;
+        }),
+        fetchCursor(bypass, errors).then(r => {
+          rawCursor = r.raw;
+          emitNeeded = true;
+        }),
+        fetchGitHubReviews(bypass, errors).then(r => {
+          rawReviewPrs = r.raw;
+          if (r.viewerLogin) viewerLogin = r.viewerLogin;
+          emitNeeded = true;
+        }),
+        fetchLinearReviews(bypass, errors).then(r => {
+          rawReviewIssues = r.raw;
+          emitNeeded = true;
+        }),
+      ];
 
-  // Phase 3: Look up missing Linear issues (referenced in PRs/agents but not assigned)
-  const knownIds = new Set(issues.map(i => i.identifier.toLowerCase()));
-  const missingIds = findMissingLinearIds(items, knownIds);
-
-  if (missingIds.length > 0 && process.env.LINEAR_API_KEY) {
-    try {
-      const cacheKey = `linear:raw:lookup:${missingIds.sort().join(",")}`;
-      const cachedLookup = getCached<RawLinearIssue[]>(cacheKey);
-      let extraRaw: RawLinearIssue[];
-
-      if (cachedLookup) {
-        logApiCall("linear", "lookup", "cached", 0);
-        extraRaw = cachedLookup;
-      } else {
-        const lookupStart = Date.now();
-        extraRaw = await dedupe(cacheKey, () =>
-          fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingIds)
+      // Emit after each fetch completes
+      const pending = fetches.map((p, i) => p.then(() => i));
+      const done = new Set<number>();
+      while (done.size < fetches.length) {
+        const idx = await Promise.race(
+          pending.filter((_, i) => !done.has(i))
         );
-        logApiCall("linear", "lookup", "ok", Date.now() - lookupStart);
-        setCache(cacheKey, extraRaw, CACHE_TTL_LINEAR);
-      }
-
-      if (extraRaw.length > 0) {
-        const allIssues = [...issues, ...transformIssues(extraRaw)];
-        items = buildWorkItems(allIssues, prs, agents);
-      }
-    } catch (e: any) {
-      errors.push(`linear-lookup: ${e.message}`);
-    }
-  }
-
-  // Phase 3b: Look up GitHub PRs referenced in Linear prUrls but not in search results
-  const knownPrUrls = new Set(prs.map(pr => pr.url));
-  const missingPrUrls = findMissingPrUrls(items, knownPrUrls);
-
-  if (missingPrUrls.length > 0 && process.env.GITHUB_TOKEN) {
-    try {
-      const cacheKey = `github:raw:pr-lookup:${missingPrUrls.sort().join(",")}`;
-      const cachedLookup = getCached<RawGitHubPR[]>(cacheKey);
-      let extraRaw: RawGitHubPR[];
-
-      if (cachedLookup) {
-        logApiCall("github", "pr-lookup", "cached", 0);
-        extraRaw = cachedLookup;
-      } else {
-        const lookupStart = Date.now();
-        extraRaw = await dedupe(cacheKey, () =>
-          fetchRawPrsByUrls(process.env.GITHUB_TOKEN!, missingPrUrls)
-        );
-        logApiCall("github", "pr-lookup", "ok", Date.now() - lookupStart);
-        setCache(cacheKey, extraRaw, CACHE_TTL_GITHUB);
-      }
-
-      if (extraRaw.length > 0) {
-        const allPrs = [...prs, ...transformPRs(extraRaw)];
-        // Collect all known issues (original + any extras from Phase 3)
-        const issueById = new Map(issues.map(i => [i.id, i]));
-        for (const item of items) {
-          if (item.linear && !issueById.has(item.linear.id)) issueById.set(item.linear.id, item.linear);
+        done.add(idx);
+        if (emitNeeded) {
+          emitNeeded = false;
+          buildAndEmit(false);
         }
-        items = buildWorkItems([...issueById.values()], allPrs, agents);
       }
-    } catch (e: any) {
-      errors.push(`github-pr-lookup: ${e.message}`);
-    }
-  }
 
-  // Phase 4: Look up Linear issues for review PRs by identifier in title/branch
-  const reviewPrs = transformReviewPRs(reviewResult.raw);
-  let reviewIssues = transformIssues(linearReviewResult.raw);
-  if (reviewPrs.length > 0 && process.env.LINEAR_API_KEY) {
-    const idRe = /[A-Z]+-\d+/gi;
-    const reviewIds = new Set<string>();
-    for (const pr of reviewPrs) {
-      const text = `${pr.title} ${pr.branch}`;
-      for (const m of text.matchAll(idRe)) reviewIds.add(m[0].toUpperCase());
-    }
-    // Remove IDs we already have from the subscribed issues
-    const knownReviewIds = new Set(reviewIssues.map(i => i.identifier.toUpperCase()));
-    const missingReviewIds = [...reviewIds].filter(id => !knownReviewIds.has(id));
-    if (missingReviewIds.length > 0) {
-      try {
-        const cacheKey = `linear:raw:review-lookup:${missingReviewIds.sort().join(",")}`;
-        const cachedLookup = getCached<RawLinearIssue[]>(cacheKey);
-        let extraRaw: RawLinearIssue[];
-        if (cachedLookup) {
-          logApiCall("linear", "review-lookup", "cached", 0);
-          extraRaw = cachedLookup;
-        } else {
-          const start = Date.now();
-          extraRaw = await dedupe(cacheKey, () =>
-            fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingReviewIds)
-          );
-          logApiCall("linear", "review-lookup", "ok", Date.now() - start);
-          setCache(cacheKey, extraRaw, CACHE_TTL_LINEAR);
+      // Phase 2: Lookup phases (sequential, emit after each)
+      const issues = transformIssues(rawLinear);
+      const prs = transformPRs(rawGithub);
+      const agents = transformAgents(rawCursor);
+
+      // Phase 2a: Missing Linear issues
+      const knownIds = new Set(issues.map(i => i.identifier.toLowerCase()));
+      const missingIds = findMissingLinearIds(buildWorkItems(issues, prs, agents), knownIds);
+
+      if (missingIds.length > 0 && process.env.LINEAR_API_KEY) {
+        try {
+          const cacheKey = `linear:raw:lookup:${missingIds.sort().join(",")}`;
+          const cachedLookup = getCached<RawLinearIssue[]>(cacheKey);
+          let extraRaw: RawLinearIssue[];
+          if (cachedLookup) {
+            logApiCall("linear", "lookup", "cached", 0);
+            extraRaw = cachedLookup;
+          } else {
+            const lookupStart = Date.now();
+            extraRaw = await dedupe(cacheKey, () =>
+              fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingIds)
+            );
+            logApiCall("linear", "lookup", "ok", Date.now() - lookupStart);
+            setCache(cacheKey, extraRaw, CACHE_TTL_LINEAR);
+          }
+          if (extraRaw.length > 0) {
+            rawLinear = [...rawLinear, ...extraRaw];
+            buildAndEmit(false);
+          }
+        } catch (e: any) {
+          errors.push(`linear-lookup: ${e.message}`);
         }
-        if (extraRaw.length > 0) reviewIssues = [...reviewIssues, ...transformIssues(extraRaw)];
-      } catch (e: any) {
-        errors.push(`linear-review-lookup: ${e.message}`);
       }
-    }
-  }
 
-  return NextResponse.json({
-    viewerLogin: reviewResult.viewerLogin,
-    items,
-    reviewPrs,
-    reviewIssues,
-    rateLimits,
-    errors,
-    stats: getApiCallStats(),
-    recent: getRecentApiCalls(100),
+      // Phase 2b: Missing GitHub PRs
+      const currentPrs = transformPRs(rawGithub);
+      const currentIssues = transformIssues(rawLinear);
+      const knownPrUrls = new Set(currentPrs.map(pr => pr.url));
+      const missingPrUrls = findMissingPrUrls(buildWorkItems(currentIssues, currentPrs, agents), knownPrUrls);
+
+      if (missingPrUrls.length > 0 && process.env.GITHUB_TOKEN) {
+        try {
+          const cacheKey = `github:raw:pr-lookup:${missingPrUrls.sort().join(",")}`;
+          const cachedLookup = getCached<RawGitHubPR[]>(cacheKey);
+          let extraRaw: RawGitHubPR[];
+          if (cachedLookup) {
+            logApiCall("github", "pr-lookup", "cached", 0);
+            extraRaw = cachedLookup;
+          } else {
+            const lookupStart = Date.now();
+            extraRaw = await dedupe(cacheKey, () =>
+              fetchRawPrsByUrls(process.env.GITHUB_TOKEN!, missingPrUrls)
+            );
+            logApiCall("github", "pr-lookup", "ok", Date.now() - lookupStart);
+            setCache(cacheKey, extraRaw, CACHE_TTL_GITHUB);
+          }
+          if (extraRaw.length > 0) {
+            rawGithub = [...rawGithub, ...extraRaw];
+            buildAndEmit(false);
+          }
+        } catch (e: any) {
+          errors.push(`github-pr-lookup: ${e.message}`);
+        }
+      }
+
+      // Phase 2c: Review issue enrichment
+      const reviewPrs = transformReviewPRs(rawReviewPrs);
+      if (reviewPrs.length > 0 && process.env.LINEAR_API_KEY) {
+        const idRe = /[A-Z]+-\d+/gi;
+        const reviewIds = new Set<string>();
+        for (const pr of reviewPrs) {
+          const text = `${pr.title} ${pr.branch}`;
+          for (const m of text.matchAll(idRe)) reviewIds.add(m[0].toUpperCase());
+        }
+        const reviewIssues = transformIssues(rawReviewIssues);
+        const knownReviewIds = new Set(reviewIssues.map(i => i.identifier.toUpperCase()));
+        const missingReviewIds = [...reviewIds].filter(id => !knownReviewIds.has(id));
+        if (missingReviewIds.length > 0) {
+          try {
+            const cacheKey = `linear:raw:review-lookup:${missingReviewIds.sort().join(",")}`;
+            const cachedLookup = getCached<RawLinearIssue[]>(cacheKey);
+            let extraRaw: RawLinearIssue[];
+            if (cachedLookup) {
+              logApiCall("linear", "review-lookup", "cached", 0);
+              extraRaw = cachedLookup;
+            } else {
+              const start = Date.now();
+              extraRaw = await dedupe(cacheKey, () =>
+                fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingReviewIds)
+              );
+              logApiCall("linear", "review-lookup", "ok", Date.now() - start);
+              setCache(cacheKey, extraRaw, CACHE_TTL_LINEAR);
+            }
+            if (extraRaw.length > 0) {
+              rawReviewIssues = [...rawReviewIssues, ...extraRaw];
+            }
+          } catch (e: any) {
+            errors.push(`linear-review-lookup: ${e.message}`);
+          }
+        }
+      }
+
+      // Final emit
+      buildAndEmit(true);
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache",
+      "Transfer-Encoding": "chunked",
+    },
   });
 }
 

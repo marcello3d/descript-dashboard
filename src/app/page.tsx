@@ -879,6 +879,21 @@ function useWorkItems(intervalMs = 300000) {
   const fetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
+  const applyChunk = useCallback((json: any) => {
+    setItems(json.items ?? []);
+    setReviewPrs(json.reviewPrs ?? []);
+    setReviewIssues(json.reviewIssues ?? []);
+    if (json.viewerLogin) setViewerLogin(json.viewerLogin);
+    const rls: RateLimitInfo[] = [];
+    if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
+    if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
+    if (json.rateLimits?.linear) rls.push({ name: "Linear", ...json.rateLimits.linear });
+    setRateLimits(rls);
+    setStats(json.stats ?? []);
+    setRecent(json.recent ?? []);
+    setErrors(json.errors ?? []);
+  }, []);
+
   const doFetch = useCallback(async (bypassCache: boolean) => {
     if (fetchingRef.current) return;
     const now = Date.now();
@@ -887,20 +902,34 @@ function useWorkItems(intervalMs = 300000) {
     setLoading(true);
     try {
       const url = bypassCache ? "/api/work-items?fresh=1" : "/api/work-items";
-      const res = await fetch(url, { cache: bypassCache ? "no-store" : "default" });
-      const json = await res.json();
-      setItems(json.items ?? []);
-      setReviewPrs(json.reviewPrs ?? []);
-      setReviewIssues(json.reviewIssues ?? []);
-      setViewerLogin(json.viewerLogin ?? "");
-      const rls: RateLimitInfo[] = [];
-      if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
-      if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
-      if (json.rateLimits?.linear) rls.push({ name: "Linear", ...json.rateLimits.linear });
-      setRateLimits(rls);
-      setStats(json.stats ?? []);
-      setRecent(json.recent ?? []);
-      setErrors(json.errors ?? []);
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.body) {
+        const json = await res.json();
+        applyChunk(json);
+      } else {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop()!;
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              applyChunk(JSON.parse(line));
+            } catch {}
+          }
+        }
+        // Process any remaining buffered data
+        if (buffer.trim()) {
+          try {
+            applyChunk(JSON.parse(buffer));
+          } catch {}
+        }
+      }
       lastFetchRef.current = Date.now();
     } catch (e: any) {
       setErrors([e.message]);
@@ -908,7 +937,7 @@ function useWorkItems(intervalMs = 300000) {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [intervalMs]);
+  }, [intervalMs, applyChunk]);
 
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
