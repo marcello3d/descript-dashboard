@@ -430,11 +430,14 @@ function WorkItemTable({
               <td className="py-1.5 px-2">
                 {(() => {
                   const isVerify = item.linear?.status.toLowerCase() === "verify";
+                  const cursorOnly = !item.linear && !item.pr && item.agents.length > 0;
                   const isClosed = (item.pr?.merged && !isVerify) ||
+                    (item.pr?.closed && !item.linear) ||
                     item.linear?.status.toLowerCase() === "canceled" ||
                     item.linear?.status.toLowerCase() === "cancelled" ||
                     item.linear?.status.toLowerCase() === "done" ||
-                    item.linear?.status.toLowerCase() === "completed";
+                    item.linear?.status.toLowerCase() === "completed" ||
+                    cursorOnly;
                   return (
                     <a
                       href={item.linear?.url ?? item.pr?.url ?? item.agents[0]?.url ?? "#"}
