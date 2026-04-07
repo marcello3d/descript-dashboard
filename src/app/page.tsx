@@ -263,14 +263,18 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
   });
 }
 
-function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }) {
-  const items = useMemo(() => buildReviewItems(prs, issues), [prs, issues]);
+function ReviewQueue({ prs, issues, favorites, onToggleFavorite }: { prs: GitHubPR[]; issues: LinearIssue[]; favorites: Set<string>; onToggleFavorite: (id: string) => void }) {
+  const items = useMemo(() => {
+    const built = buildReviewItems(prs, issues);
+    return built.sort((a, b) => (favorites.has(b.key) ? 1 : 0) - (favorites.has(a.key) ? 1 : 0));
+  }, [prs, issues, favorites]);
   if (items.length === 0) return null;
   return (
     <div className="mb-4">
       <table className="w-full">
         <thead className="sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]">
           <tr className="border-b border-border">
+            <th className="w-[24px] px-0"></th>
             <th className="text-right py-2 px-2 w-[70px]">
               <span className="text-xs font-medium text-text-secondary">Updated</span>
             </th>
@@ -292,6 +296,15 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
         <tbody>
           {items.map(item => (
             <tr key={item.key} className="border-b border-border-muted hover:bg-surface-hover transition-colors">
+              <td className="py-1.5 px-0 text-center w-[24px]">
+                <button
+                  onClick={() => onToggleFavorite(item.key)}
+                  className={`text-sm leading-none ${favorites.has(item.key) ? "text-yellow-400" : "text-text-muted hover:text-yellow-300"} transition-colors`}
+                  title={favorites.has(item.key) ? "Unfavorite" : "Favorite"}
+                >
+                  {favorites.has(item.key) ? "★" : "☆"}
+                </button>
+              </td>
               <td className="py-1.5 px-2 text-right w-[70px]">
                 {(() => {
                   const { text, color } = timeAgo(item.updatedAt);
@@ -1035,7 +1048,7 @@ function Home() {
             onClick={() => setView(isReview ? "stage" : "review")}
             className={`text-xs px-2.5 py-1 transition-colors ${isReview ? "toggle-active" : "toggle-inactive"}`}
           >
-            Review{(() => { const n = buildReviewItems(reviewPrs, reviewIssues).length; return n > 0 ? ` (${n})` : ""; })()}
+            Requested reviews{(() => { const n = buildReviewItems(reviewPrs, reviewIssues).length; return n > 0 ? ` (${n})` : ""; })()}
           </button>
         </div>
       </header>
@@ -1050,7 +1063,7 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue prs={reviewPrs} issues={reviewIssues} />
+          <ReviewQueue prs={reviewPrs} issues={reviewIssues} favorites={favorites} onToggleFavorite={toggleFavorite} />
           {reviewPrs.length === 0 && reviewIssues.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
           )}
