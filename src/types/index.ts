@@ -13,7 +13,8 @@ export interface LinearIssue {
 export interface GitHubPR {
   id: number;
   title: string;
-  author: string;
+  author: string; // display name or login
+  authorLogin: string; // GitHub username
   repo: string;
   branch: string;
   draft: boolean;

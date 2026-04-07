@@ -94,6 +94,7 @@ export async function fetchAuthoredPRs(
   for (const item of searchItems) {
     const prev = prevById.get(item.id);
     if (prev && prev.updatedAt === item.updated_at) {
+      if (!prev.authorLogin) prev.authorLogin = item.user?.login ?? "";
       reusable.set(item.id, prev);
     } else {
       needFetch.push(item);
@@ -150,6 +151,7 @@ export async function fetchAuthoredPRs(
             id: item.id,
             title: pr.title,
             author: pr.user?.login ?? "",
+            authorLogin: pr.user?.login ?? "",
             repo: `${owner}/${repo}`,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
@@ -170,6 +172,7 @@ export async function fetchAuthoredPRs(
             id: item.id,
             title: item.title,
             author: item.user?.login ?? "",
+            authorLogin: item.user?.login ?? "",
             repo: `${owner}/${repo}`,
             branch: "",
             draft: item.draft ?? false,
@@ -253,6 +256,7 @@ export async function fetchPrsByUrls(
             id: pr.id,
             title: pr.title,
             author: pr.user?.login ?? "",
+            authorLogin: pr.user?.login ?? "",
             repo: `${owner}/${repo}`,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
@@ -305,6 +309,8 @@ export async function fetchReviewRequestedPRs(
   for (const item of searchItems) {
     const prev = prevById.get(item.id);
     if (prev && prev.updatedAt === item.updated_at) {
+      // Backfill authorLogin from search data for cached PRs missing the field
+      if (!prev.authorLogin) prev.authorLogin = item.user?.login ?? "";
       reusable.set(item.id, prev);
     } else {
       needFetch.push(item);
@@ -326,6 +332,7 @@ export async function fetchReviewRequestedPRs(
             id: item.id,
             title: pr.title,
             author: pr.user?.login ?? "",
+            authorLogin: pr.user?.login ?? "",
             repo: `${owner}/${repo}`,
             branch: pr.head.ref,
             draft: pr.draft ?? false,
@@ -345,6 +352,7 @@ export async function fetchReviewRequestedPRs(
             id: item.id,
             title: item.title,
             author: item.user?.login ?? "",
+            authorLogin: item.user?.login ?? "",
             repo: `${owner}/${repo}`,
             branch: "",
             draft: item.draft ?? false,
@@ -371,9 +379,9 @@ export async function fetchReviewRequestedPRs(
   }
 
   // Resolve GitHub logins to display names
-  await resolveUserNames(octokit, allPrs.map(pr => pr.author));
+  await resolveUserNames(octokit, allPrs.map(pr => pr.authorLogin));
   for (const pr of allPrs) {
-    pr.author = displayName(pr.author);
+    pr.author = displayName(pr.authorLogin);
   }
 
   return { prs: allPrs };

@@ -256,7 +256,7 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
       key: `pr-${pr.id}`,
       updatedAt: pr.updatedAt,
       title: pr.title,
-      owner: pr.author,
+      owner: pr.author !== pr.authorLogin ? `${pr.author} (@${pr.authorLogin})` : `@${pr.authorLogin}`,
       pr,
       linear,
     };
@@ -275,7 +275,7 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
               <span className="text-xs font-medium text-text-secondary">Updated</span>
             </th>
             <th className="text-left py-2 px-2">
-              <span className="text-xs font-medium text-text-secondary">Item</span>
+              <span className="text-xs font-medium text-text-secondary">PR</span>
             </th>
             <th className="text-left py-2 px-2 whitespace-nowrap">
               <span className="text-xs font-medium text-text-secondary">Author</span>
@@ -283,9 +283,6 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
             <th className="py-2 px-1 w-[24px]"></th>
             <th className="text-left py-2 px-1 w-px whitespace-nowrap">
               <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<SiLinear className="w-3.5 h-3.5 text-[#5E6AD2]" />} label="Linear" error={null} /></span>
-            </th>
-            <th className="text-left py-2 px-1 w-px whitespace-nowrap">
-              <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<SiGithub className="w-3.5 h-3.5 text-text-secondary" />} label="GitHub" error={null} /></span>
             </th>
             <th className="text-left py-2 px-2 w-px whitespace-nowrap">
               <span className="text-xs font-medium text-text-secondary">Changes</span>
@@ -302,12 +299,18 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
                 })()}
               </td>
               <td className="py-1.5 px-2">
-                <a href={item.linear?.url ?? item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="text-sm text-text-primary hover:underline">
+                <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
+                  <PrStatusIcon pr={item.pr} />
+                  <span className="text-xs text-text-tertiary font-mono">#{item.pr?.url.split("/").pop()}</span>
                   {item.title}
                 </a>
               </td>
               <td className="py-1.5 px-2 whitespace-nowrap">
-                <span className="text-xs text-text-tertiary">{item.owner}</span>
+                {item.pr?.authorLogin ? (
+                  <a href={`https://github.com/${item.pr.authorLogin}`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-tertiary hover:underline">{item.owner}</a>
+                ) : (
+                  <span className="text-xs text-text-tertiary">{item.owner}</span>
+                )}
               </td>
               <td className="py-1.5 px-1 text-center">
                 {item.linear && (
@@ -323,24 +326,6 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
                 ) : (
                   <div className="flex px-2">
                     <SiLinear className="w-3.5 h-3.5 text-text-muted" />
-                  </div>
-                )}
-              </td>
-              <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.pr ? (
-                  <a href={item.pr.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors">
-                    <PrStatusIcon pr={item.pr} />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.pr.url.split("/").pop()}</span>
-                    <ReviewIcon decision={item.pr.reviewDecision} />
-                  </a>
-                ) : item.linear?.prUrls?.[0] ? (
-                  <a href={item.linear.prUrls[0]} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors">
-                    <PrStatusIcon />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.linear.prUrls[0].split("/").pop()}</span>
-                  </a>
-                ) : (
-                  <div className="flex px-2">
-                    <PrStatusIcon />
                   </div>
                 )}
               </td>
