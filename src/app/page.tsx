@@ -459,6 +459,7 @@ function WorkItemTable({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+                    title={item.linear.status}
                   >
                     <StatusIcon status={item.linear.status} />
                     <span className="text-xs text-text-tertiary font-mono">
@@ -489,6 +490,7 @@ function WorkItemTable({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+                    title={item.pr.merged ? "Merged" : item.pr.closed ? "Closed" : item.pr.draft ? "Draft" : item.pr.reviewDecision === "APPROVED" ? "Approved" : item.pr.reviewDecision === "CHANGES_REQUESTED" ? "Changes requested" : item.pr.reviewDecision === "REVIEW_REQUIRED" ? "Review required" : "Open"}
                   >
                     <PrStatusIcon pr={item.pr} />
                     <span className="text-xs text-text-tertiary font-mono">#{item.pr.url.split("/").pop()}</span>
@@ -737,7 +739,7 @@ function ApiStatsPopover({ rateLimits, stats, recent }: { rateLimits: RateLimitI
       <button
         onClick={() => setOpen(o => !o)}
         className={`text-[11px] tabular-nums hover:text-text-secondary transition-colors ${color}`}
-        title={rateLimits.map(rl => `${rl.name}: ${rl.remaining}/${rl.limit}`).join(" · ")}
+        title={rateLimits.map(rl => `${rl.name}: ${rl.remaining}/${rl.limit}`).join("\n")}
       >
         API {minPct}%
       </button>
