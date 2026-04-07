@@ -269,7 +269,7 @@ function ReviewQueue({ prs, issues }: { prs: GitHubPR[]; issues: LinearIssue[] }
   return (
     <div className="mb-4">
       <table className="w-full">
-        <thead className="sticky top-[52px] z-10 bg-background">
+        <thead className="sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]">
           <tr className="border-b border-border">
             <th className="text-right py-2 px-2 w-[70px]">
               <span className="text-xs font-medium text-text-secondary">Updated</span>
@@ -358,7 +358,7 @@ function WorkItemTable({
   const colCount = 8;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
-      <thead className="sticky top-[52px] z-10 bg-background">
+      <thead className="sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]">
         <tr className="border-b border-border">
           <th className="w-[24px] px-0"></th>
           <th className="text-right py-2 px-2 w-[70px]">
@@ -385,7 +385,7 @@ function WorkItemTable({
       {groups.map(({ label, items }) => (
       <tbody key={label}>
         {groups.length > 1 && (
-          <tr className="sticky top-[84px] z-[5] bg-background">
+          <tr className="sticky top-[84px] z-[5] bg-surface-alt">
             <td colSpan={colCount} className="pt-4 pb-1 px-2">
               <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({items.length})</span></span>
             </td>
@@ -970,7 +970,7 @@ function Home() {
 
   return (
     <div className="w-full px-4 py-4">
-      <header className="flex items-center gap-3 mb-3 sticky top-0 z-20 bg-background py-3 -mt-3">
+      <header className="flex items-center gap-3 mb-3 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
         {repos.length > 1 && (
           <select
             value={repoFilter}
