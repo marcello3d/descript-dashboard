@@ -2,25 +2,6 @@ import { Octokit } from "@octokit/rest";
 import { getCached, setCache } from "@/lib/cache";
 import type { GitHubPR } from "@/types";
 
-const CURSOR_AGENT_URL_RES = [
-  /https:\/\/cursor\.com\/agents\/[a-zA-Z0-9-]+/,
-  /https:\/\/cursor\.com\/agents\?id=([a-zA-Z0-9-]+)/,
-  /https:\/\/cursor\.com\/background-agent\?bcId=([a-zA-Z0-9-]+)/,
-];
-
-function extractCursorAgentUrl(body: string | null | undefined): string | null {
-  if (!body) return null;
-  for (const re of CURSOR_AGENT_URL_RES) {
-    const match = body.match(re);
-    if (match) {
-      // Normalize to canonical agents URL
-      const id = match[1] ?? match[0].split("/").pop();
-      return `https://cursor.com/agents/${id}`;
-    }
-  }
-  return null;
-}
-
 const USER_NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day
 
 async function resolveUserNames(octokit: Octokit, logins: string[]): Promise<Map<string, string>> {
@@ -121,7 +102,6 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     deletions: raw.deletions,
     changedFiles: raw.changedFiles,
     checksState: null,
-    cursorAgentUrl: extractCursorAgentUrl(raw.body),
     requestedReviewers: raw.requestedReviewers ?? [],
     requestedTeams: raw.requestedTeams ?? [],
   };

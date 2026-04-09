@@ -67,12 +67,6 @@ export function buildWorkItems(
     }
   }
 
-  // Index agents by their cursor.com URL for deduplication
-  const agentsByUrl = new Map<string, CursorAgent>();
-  for (const agent of agents) {
-    agentsByUrl.set(agent.url, agent);
-  }
-
   // Match agents
   for (const agent of agents) {
     let matched = false;
@@ -100,29 +94,6 @@ export function buildWorkItems(
     if (!matched) {
       const id = `agent-${agent.id}`;
       items.set(id, { id, title: agent.name || agent.id, agents: [agent] });
-    }
-  }
-
-  // Create synthetic agents from PR cursorAgentUrl for PRs that have no agents yet
-  for (const [, item] of items) {
-    if (item.agents.length === 0 && item.pr?.cursorAgentUrl) {
-      // Skip if this agent URL was already returned by the Cursor API
-      if (!agentsByUrl.has(item.pr.cursorAgentUrl)) {
-        const agentId = item.pr.cursorAgentUrl.split("/").pop() ?? "";
-        item.agents.push({
-          id: agentId,
-          name: "",
-          status: "unknown",
-          repo: item.pr.repo,
-          branch: item.pr.branch,
-          url: item.pr.cursorAgentUrl,
-          prUrl: item.pr.url,
-          createdAt: "",
-          linesAdded: 0,
-          linesRemoved: 0,
-          filesChanged: 0,
-        });
-      }
     }
   }
 

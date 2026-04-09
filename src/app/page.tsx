@@ -207,7 +207,7 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
       ? "text-status-red"
       : "text-text-tertiary";
 
-  const showStatus = s !== "finished" && s !== "unknown";
+  const showStatus = s !== "finished";
 
   return (
     <span className="text-xs inline-flex items-center gap-1">
