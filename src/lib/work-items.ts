@@ -15,6 +15,7 @@ export function buildWorkItems(
       id: issue.identifier,
       title: issue.title,
       linear: issue,
+      prs: [],
       agents: [],
     });
   }
@@ -26,7 +27,7 @@ export function buildWorkItems(
     // 1. Match by Linear attachment (issue has this PR URL linked)
     for (const [, item] of items) {
       if (item.linear?.prUrls.includes(pr.url)) {
-        item.pr = pr;
+        item.prs.push(pr);
         matched = true;
         break;
       }
@@ -37,7 +38,7 @@ export function buildWorkItems(
       const prText = `${pr.title} ${pr.url} ${pr.branch}`.toLowerCase();
       for (const [key, item] of items) {
         if (prText.includes(key)) {
-          item.pr = pr;
+          item.prs.push(pr);
           matched = true;
           break;
         }
@@ -51,7 +52,7 @@ export function buildWorkItems(
           const agentText = `${agent.branch} ${agent.name}`.toLowerCase();
           for (const [key, item] of items) {
             if (item.linear && agentText.includes(key)) {
-              item.pr = pr;
+              item.prs.push(pr);
               matched = true;
               break;
             }
@@ -63,7 +64,7 @@ export function buildWorkItems(
 
     if (!matched) {
       const id = `pr-${pr.id}`;
-      items.set(id, { id, title: pr.title, pr, agents: [] });
+      items.set(id, { id, title: pr.title, prs: [pr], agents: [] });
     }
   }
 
@@ -73,7 +74,7 @@ export function buildWorkItems(
     // Match by PR URL
     if (agent.prUrl) {
       for (const [, item] of items) {
-        if (item.pr?.url === agent.prUrl) {
+        if (item.prs.some(pr => pr.url === agent.prUrl)) {
           item.agents.push(agent);
           matched = true;
           break;
@@ -93,7 +94,7 @@ export function buildWorkItems(
     }
     if (!matched) {
       const id = `agent-${agent.id}`;
-      items.set(id, { id, title: agent.name || agent.id, agents: [agent] });
+      items.set(id, { id, title: agent.name || agent.id, prs: [], agents: [agent] });
     }
   }
 
@@ -105,7 +106,7 @@ export function buildWorkItems(
 export function getLastUpdated(item: WorkItem): string {
   const dates = [
     item.linear?.updatedAt,
-    item.pr?.updatedAt,
+    ...item.prs.map(pr => pr.updatedAt),
     ...item.agents.map((a) => a.createdAt),
   ].filter(Boolean) as string[];
   if (dates.length === 0) return "";
@@ -115,7 +116,9 @@ export function getLastUpdated(item: WorkItem): string {
 export function getLastUpdatedSource(item: WorkItem): { date: string; source: string } | null {
   const entries: { date: string; source: string }[] = [];
   if (item.linear?.updatedAt) entries.push({ date: item.linear.updatedAt, source: "Linear" });
-  if (item.pr?.updatedAt) entries.push({ date: item.pr.updatedAt, source: "GitHub" });
+  for (const pr of item.prs) {
+    if (pr.updatedAt) entries.push({ date: pr.updatedAt, source: "GitHub" });
+  }
   for (const a of item.agents) {
     if (a.createdAt) entries.push({ date: a.createdAt, source: "Cursor" });
   }
@@ -133,7 +136,7 @@ export function findMissingPrUrls(
 ): string[] {
   const missing = new Set<string>();
   for (const item of items) {
-    if (item.pr) continue; // already has a PR
+    if (item.prs.length > 0) continue; // already has PRs
     if (item.linear?.prUrls) {
       for (const url of item.linear.prUrls) {
         if (!knownPrUrls.has(url)) missing.add(url);
@@ -153,7 +156,7 @@ export function findMissingLinearIds(
   const missing = new Set<string>();
   for (const item of items) {
     if (item.linear) continue;
-    const text = `${item.pr?.branch ?? ""} ${item.pr?.title ?? ""} ${item.agents.map(a => `${a.branch} ${a.name}`).join(" ")}`;
+    const text = `${item.prs.map(pr => `${pr.branch} ${pr.title}`).join(" ")} ${item.agents.map(a => `${a.branch} ${a.name}`).join(" ")}`;
     for (const match of text.matchAll(IDENTIFIER_RE)) {
       const id = match[0].toUpperCase();
       if (!knownIdentifiers.has(id.toLowerCase())) missing.add(id);

@@ -57,6 +57,6 @@ export interface WorkItem {
   id: string;
   title: string;
   linear?: LinearIssue;
-  pr?: GitHubPR;
+  prs: GitHubPR[];
   agents: CursorAgent[];
 }

@@ -7,6 +7,16 @@ import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 
+function formatTimeAgo(ts: number): string {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
+}
+
 // GitHub PR status icons (Octicons)
 function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?: boolean } }) {
   if (!pr) return <SiGithub className="w-3.5 h-3.5 text-text-muted" />;
@@ -151,15 +161,16 @@ function UnifiedStatus({ item }: { item: WorkItem }) {
     : <StatusIcon status="In Progress" />;
 
   // PR exists → show Linear icon + GitHub-derived status
-  if (item.pr) {
+  const pr = item.prs[0];
+  if (pr) {
     let label: React.ReactNode;
-    if (item.pr.merged) label = <span className="text-xs text-status-purple">PR merged</span>;
-    else if (item.pr.reviewDecision === "CHANGES_REQUESTED")
+    if (pr.merged) label = <span className="text-xs text-status-purple">PR merged</span>;
+    else if (pr.reviewDecision === "CHANGES_REQUESTED")
       label = <span className="text-xs text-status-red">PR changes requested</span>;
-    else if (item.pr.reviewDecision === "APPROVED")
+    else if (pr.reviewDecision === "APPROVED")
       label = <span className="text-xs text-status-green">PR approved</span>;
-    else if (item.pr.draft) label = <span className="text-xs text-text-tertiary">PR draft</span>;
-    else if (item.pr.reviewDecision === "REVIEW_REQUIRED")
+    else if (pr.draft) label = <span className="text-xs text-text-tertiary">PR draft</span>;
+    else if (pr.reviewDecision === "REVIEW_REQUIRED")
       label = <span className="text-xs text-status-yellow">PR in review</span>;
     else label = <span className="text-xs text-text-tertiary">PR open</span>;
     return <span className="inline-flex items-center gap-1 leading-none">{linearIcon}{label}</span>;
@@ -382,9 +393,13 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
                   </div>
                 )}
               </td>
-              <td className="py-1.5 px-2 whitespace-nowrap">
-                {item.pr && (item.pr.additions > 0 || item.pr.deletions > 0) && (
-                  <DiffStats additions={item.pr.additions} deletions={item.pr.deletions} />
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                {item.pr && (item.pr.changedFiles > 0 || item.pr.additions > 0 || item.pr.deletions > 0) && (
+                  <a href={`${item.pr.url}/files`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-xs py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors">
+                    <span className="text-text-tertiary text-right w-[40px] flex-shrink-0">{item.pr.changedFiles > 0 ? `${item.pr.changedFiles} ${item.pr.changedFiles === 1 ? "file" : "files"}` : ""}</span>
+                    <span className="w-2 flex-shrink-0" />
+                    {(item.pr.additions > 0 || item.pr.deletions > 0) && <DiffStats additions={item.pr.additions} deletions={item.pr.deletions} />}
+                  </a>
                 )}
               </td>
             </tr>
@@ -401,7 +416,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
   const [error, setError] = useState("");
 
   async function handleCreate() {
-    const pr = item.pr!;
+    const pr = item.prs[0]!;
     const defaultPrompt = item.linear
       ? `Address the PR feedback and fix any issues on this PR: ${pr.url}\n\nLinear issue: ${item.linear.url}\n\nTitle: ${item.title}`
       : `Continue working on this PR: ${pr.url}\n\nTitle: ${item.title}`;
@@ -544,7 +559,9 @@ function WorkItemTable({
                   const { text, color } = timeAgo(lastUpdated);
                   const tooltipEntries: { date: string; label: string }[] = [];
                   if (item.linear?.updatedAt) tooltipEntries.push({ date: item.linear.updatedAt, label: "Linear" });
-                  if (item.pr?.updatedAt) tooltipEntries.push({ date: item.pr.updatedAt, label: "GitHub" });
+                  for (const pr of item.prs) {
+                    if (pr.updatedAt) tooltipEntries.push({ date: pr.updatedAt, label: "GitHub" });
+                  }
                   for (const a of item.agents) {
                     if (a.createdAt) tooltipEntries.push({ date: a.createdAt, label: "Cursor" });
                   }
@@ -561,18 +578,21 @@ function WorkItemTable({
               </td>
               <td className="py-1.5 px-2">
                 {(() => {
+                  const hasActiveAgent = item.agents.some(a => a.status === "running" || a.status === "in_progress");
                   const isVerify = item.linear?.status.toLowerCase() === "verify";
-                  const cursorOnly = !item.linear && !item.pr && item.agents.length > 0;
-                  const isClosed = (item.pr?.merged && !isVerify) ||
-                    (item.pr?.closed && !item.linear) ||
+                  const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
+                  const isClosed = !hasActiveAgent && (
+                    (item.prs.some(pr => pr.merged) && !isVerify) ||
+                    (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) ||
                     item.linear?.status.toLowerCase() === "canceled" ||
                     item.linear?.status.toLowerCase() === "cancelled" ||
                     item.linear?.status.toLowerCase() === "done" ||
                     item.linear?.status.toLowerCase() === "completed" ||
-                    cursorOnly;
+                    cursorOnly
+                  );
                   return (
                     <a
-                      href={item.linear?.url ?? item.pr?.url ?? item.agents[0]?.url ?? "#"}
+                      href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
@@ -601,9 +621,9 @@ function WorkItemTable({
                       {item.linear.identifier}
                     </span>
                   </a>
-                ) : item.pr ? (
+                ) : item.prs[0] ? (
                   <a
-                    href={`https://linear.app/descript/new?title=${encodeURIComponent(item.pr.title)}&description=${encodeURIComponent(item.pr.url)}`}
+                    href={`https://linear.app/descript/new?title=${encodeURIComponent(item.prs[0].title)}&description=${encodeURIComponent(item.prs[0].url)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors text-text-muted hover:text-text-secondary"
@@ -619,18 +639,23 @@ function WorkItemTable({
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.pr ? (
-                  <a
-                    href={item.pr.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
-                    title={item.pr.merged ? "Merged" : item.pr.closed ? "Closed" : item.pr.draft ? "Draft" : item.pr.reviewDecision === "APPROVED" ? "Approved" : item.pr.reviewDecision === "CHANGES_REQUESTED" ? "Changes requested" : item.pr.reviewDecision === "REVIEW_REQUIRED" ? "Review required" : "Open"}
-                  >
-                    <PrStatusIcon pr={item.pr} />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.pr.url.split("/").pop()}</span>
-                    <ReviewIcon decision={item.pr.reviewDecision} />
-                  </a>
+                {item.prs.length > 0 ? (
+                  <div className="flex flex-col gap-0.5">
+                    {item.prs.map(pr => (
+                      <a
+                        key={pr.id}
+                        href={pr.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+                        title={pr.merged ? "Merged" : pr.closed ? "Closed" : pr.draft ? "Draft" : pr.reviewDecision === "APPROVED" ? "Approved" : pr.reviewDecision === "CHANGES_REQUESTED" ? "Changes requested" : pr.reviewDecision === "REVIEW_REQUIRED" ? "Review required" : "Open"}
+                      >
+                        <PrStatusIcon pr={pr} />
+                        <span className="text-xs text-text-tertiary font-mono">#{pr.url.split("/").pop()}</span>
+                        <ReviewIcon decision={pr.reviewDecision} />
+                      </a>
+                    ))}
+                  </div>
                 ) : item.linear?.prUrls?.[0] ? (
                   <a
                     href={item.linear.prUrls[0]}
@@ -659,7 +684,7 @@ function WorkItemTable({
                     <span className="text-xs text-text-tertiary">Agent</span>
                     <AgentInfo agent={item.agents[0]} />
                   </a>
-                ) : item.pr ? (
+                ) : item.prs.length > 0 ? (
                   <CreateAgentButton item={item} onCreated={onAgentCreated} />
                 ) : (
                   <div className="flex px-2">
@@ -668,10 +693,10 @@ function WorkItemTable({
                 )}
               </td>
               {(() => {
-                const files = item.pr?.changedFiles ?? item.agents[0]?.filesChanged ?? 0;
-                const add = item.pr?.additions ?? item.agents[0]?.linesAdded ?? 0;
-                const del = item.pr?.deletions ?? item.agents[0]?.linesRemoved ?? 0;
-                const prUrl = item.pr?.url ?? item.linear?.prUrls?.[0] ?? null;
+                const files = item.prs[0]?.changedFiles ?? item.agents[0]?.filesChanged ?? 0;
+                const add = item.prs[0]?.additions ?? item.agents[0]?.linesAdded ?? 0;
+                const del = item.prs[0]?.deletions ?? item.agents[0]?.linesRemoved ?? 0;
+                const prUrl = item.prs[0]?.url ?? item.linear?.prUrls?.[0] ?? null;
                 const changesUrl = prUrl ? `${prUrl}/files` : null;
                 const hasContent = files > 0 || add > 0 || del > 0;
                 const inner = hasContent ? (
@@ -730,11 +755,12 @@ type ActionGroup = "ready" | "verify" | "review" | "changes" | "draft" | "other"
 
 function getActionGroup(item: WorkItem): ActionGroup {
   if (item.linear?.status.toLowerCase() === "verify") return "verify";
-  if (item.pr) {
-    if (item.pr.merged) return "other";
-    if (item.pr.reviewDecision === "APPROVED") return "ready";
-    if (item.pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
-    if (item.pr.draft) return "draft";
+  const pr = item.prs[0];
+  if (pr) {
+    if (pr.merged) return "other";
+    if (pr.reviewDecision === "APPROVED") return "ready";
+    if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
+    if (pr.draft) return "draft";
     return "review";
   }
   return "draft";
@@ -957,6 +983,7 @@ function useWorkItems(intervalMs = 300000) {
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ step: number; totalSteps: number } | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const fetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
@@ -974,7 +1001,10 @@ function useWorkItems(intervalMs = 300000) {
     setRecent(json.recent ?? []);
     setErrors(json.errors ?? []);
     if (json.progress) setProgress(json.progress);
-    if (json.done) setProgress(null);
+    if (json.done) {
+      setProgress(null);
+      setLastUpdated(Date.now());
+    }
   }, []);
 
   const doFetch = useCallback(async (bypassCache: boolean) => {
@@ -1030,7 +1060,7 @@ function useWorkItems(intervalMs = 300000) {
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
 
-  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, refresh };
+  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh };
 }
 
 function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string; onChange: (v: string) => void }) {
@@ -1076,7 +1106,14 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, refresh: refreshAll } = useWorkItems();
+  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
+
+  // Tick every 15s to keep "updated X ago" fresh
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
 
   const searchParams = useSearchParams();
 
@@ -1140,7 +1177,7 @@ function Home() {
   const repos = useMemo(() => {
     const set = new Set<string>();
     for (const item of allUnfilteredItems) {
-      if (item.pr) set.add(item.pr.repo.split("/").pop()!);
+      for (const pr of item.prs) set.add(pr.repo.split("/").pop()!);
       if (item.agents.length > 0) set.add(item.agents[0].repo.split("/").pop()!);
     }
     return Array.from(set).sort();
@@ -1149,8 +1186,8 @@ function Home() {
   const allItems = useMemo(() => {
     if (repoFilter === "all") return allUnfilteredItems;
     return allUnfilteredItems.filter(item => {
-      const repo = item.pr?.repo ?? item.agents[0]?.repo ?? "";
-      return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (!item.pr && item.agents.length === 0);
+      const repo = item.prs[0]?.repo ?? item.agents[0]?.repo ?? "";
+      return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
     });
   }, [allUnfilteredItems, repoFilter]);
 
@@ -1158,14 +1195,16 @@ function Home() {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
     for (const item of allItems) {
-      const cursorOnly = !item.linear && !item.pr && item.agents.length > 0;
+      const hasActiveAgent = item.agents.some(a => a.status === "running" || a.status === "in_progress");
+      const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
       const isVerify = item.linear?.status.toLowerCase() === "verify";
-      const isClosed =
-        (item.pr?.merged && !isVerify) ||
-        item.pr?.closed ||
+      const isClosed = !hasActiveAgent && (
+        (item.prs.some(pr => pr.merged) && !isVerify) ||
+        (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) ||
         item.linear?.status.toLowerCase() === "canceled" ||
         item.linear?.status.toLowerCase() === "cancelled" ||
-        cursorOnly;
+        cursorOnly
+      );
       if (isClosed) {
         closed.push(item);
       } else {
@@ -1233,11 +1272,6 @@ function Home() {
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
         </span>
-        {progress && (
-          <span className="text-[11px] text-text-tertiary tabular-nums">
-            {progress.step}/{progress.totalSteps}
-          </span>
-        )}
         <button
           onClick={refreshAll}
           disabled={anyLoading}
@@ -1258,6 +1292,9 @@ function Home() {
             />
           </svg>
         </button>
+        <span className="text-[11px] text-text-tertiary tabular-nums">
+          {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? formatTimeAgo(lastUpdated) : ""}
+        </span>
         {rateLimitInfos.length > 0 && (
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
