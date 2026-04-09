@@ -48,3 +48,29 @@ export function transformAgent(agent: RawCursorAgent): CursorAgent {
 export function transformAgents(raw: RawCursorAgent[]): CursorAgent[] {
   return raw.map(transformAgent);
 }
+
+export async function createAgent(
+  apiKey: string,
+  repository: string,
+  ref: string,
+  prompt: string
+): Promise<RawCursorAgent> {
+  const res = await fetch(`${CURSOR_API_BASE}/v0/agents`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt: { text: prompt },
+      source: { repository: `https://github.com/${repository}`, ref },
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Cursor API error: ${res.status} ${res.statusText}${text ? ` — ${text}` : ""}`);
+  }
+
+  return res.json();
+}

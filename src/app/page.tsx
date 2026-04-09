@@ -396,18 +396,96 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
   );
 }
 
+function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () => void }) {
+  const [state, setState] = useState<"idle" | "prompting" | "creating" | "done" | "error">("idle");
+  const [error, setError] = useState("");
+
+  async function handleCreate() {
+    const pr = item.pr!;
+    const defaultPrompt = item.linear
+      ? `Address the PR feedback and fix any issues on this PR: ${pr.url}\n\nLinear issue: ${item.linear.url}\n\nTitle: ${item.title}`
+      : `Continue working on this PR: ${pr.url}\n\nTitle: ${item.title}`;
+    const prompt = window.prompt("Cursor agent prompt:", defaultPrompt);
+    if (!prompt) return;
+
+    setState("creating");
+    setError("");
+    try {
+      const res = await fetch("/api/cursor-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repository: pr.repo,
+          ref: pr.branch,
+          prompt,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create agent");
+      setState("done");
+      if (data.agent?.url) window.open(data.agent.url, "_blank");
+      onCreated();
+    } catch (e: any) {
+      setState("error");
+      setError(e.message);
+    }
+  }
+
+  if (state === "creating") {
+    return (
+      <div className="flex items-center gap-1.5 px-2">
+        <CursorIcon className="w-3.5 h-3.5 text-text-muted animate-pulse" />
+        <span className="text-xs text-text-tertiary">Creating…</span>
+      </div>
+    );
+  }
+  if (state === "done") {
+    return (
+      <div className="flex items-center gap-1.5 px-2">
+        <CursorIcon className="w-3.5 h-3.5 text-status-green" />
+        <span className="text-xs text-status-green">Created</span>
+      </div>
+    );
+  }
+  if (state === "error") {
+    return (
+      <button
+        onClick={handleCreate}
+        className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+        title={error}
+      >
+        <CursorIcon className="w-3.5 h-3.5 text-status-red" />
+        <span className="text-xs text-status-red">Failed</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={handleCreate}
+      className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors group"
+      title="Create Cursor agent for this PR"
+    >
+      <CursorIcon className="w-3.5 h-3.5 text-text-muted group-hover:text-text-secondary transition-colors" />
+      <span className="text-xs text-text-muted group-hover:text-text-tertiary transition-colors">+</span>
+    </button>
+  );
+}
+
 function WorkItemTable({
   groups,
   errors,
   dimmed,
   favorites,
   onToggleFavorite,
+  onAgentCreated,
 }: {
   groups: { label: string; items: WorkItem[] }[];
   errors: string[];
   dimmed?: boolean;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
+  onAgentCreated: () => void;
 }) {
   const colCount = 8;
   return (
@@ -581,6 +659,8 @@ function WorkItemTable({
                     <span className="text-xs text-text-tertiary">Agent</span>
                     <AgentInfo agent={item.agents[0]} />
                   </a>
+                ) : item.pr ? (
+                  <CreateAgentButton item={item} onCreated={onAgentCreated} />
                 ) : (
                   <div className="flex px-2">
                     <CursorIcon className="w-3.5 h-3.5 text-text-muted" />
@@ -1219,6 +1299,7 @@ function Home() {
             dimmed={false}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
+            onAgentCreated={refreshAll}
           />
           {displayItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">

@@ -156,3 +156,8 @@ export function setCache<T>(key: string, data: T, ttlMs: number): void {
     )
     .run(key, JSON.stringify(data), Date.now() + ttlMs);
 }
+
+export function invalidateCache(key: string): void {
+  console.log(`[cache] INVALIDATE ${key}`);
+  getDb().prepare("DELETE FROM cache WHERE key = ?").run(key);
+}
