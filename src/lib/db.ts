@@ -29,6 +29,7 @@ interface WorkItemRow {
   linear_data: string | null;
   prs_data: string;
   agents_data: string;
+  tags: string;
   created_at: number;
   updated_at: number;
 }
@@ -70,6 +71,11 @@ function getDb(): Database.Database {
         updated_at INTEGER NOT NULL
       )
     `);
+    const hasTagsCol = db.prepare("SELECT COUNT(*) as c FROM pragma_table_info('work_items') WHERE name = 'tags'").get() as { c: number };
+    if (hasTagsCol.c === 0) {
+      db.exec("ALTER TABLE work_items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS tags (tag TEXT PRIMARY KEY)`);
     db.exec(`
       CREATE TABLE IF NOT EXISTS sync_status (
         service TEXT PRIMARY KEY,
@@ -90,6 +96,7 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
     linear: row.linear_data ? JSON.parse(row.linear_data) as LinearIssue : undefined,
     prs: JSON.parse(row.prs_data) as GitHubPR[],
     agents: JSON.parse(row.agents_data) as CursorAgent[],
+    tags: JSON.parse(row.tags) as string[],
   };
 }
 
@@ -106,22 +113,23 @@ function rowToReviewItem(row: ReviewItemRow): ReviewItem {
 
 export function upsertWorkItems(items: WorkItem[]): void {
   const d = getDb();
-  const findByAnchor = d.prepare("SELECT id, created_at FROM work_items WHERE anchor = ?");
+  const findByAnchor = d.prepare("SELECT id, created_at, tags FROM work_items WHERE anchor = ?");
   const insert = d.prepare(
-    "INSERT OR REPLACE INTO work_items (id, anchor, title, linear_data, prs_data, agents_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT OR REPLACE INTO work_items (id, anchor, title, linear_data, prs_data, agents_data, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
   const now = Date.now();
   const tx = d.transaction(() => {
     for (const item of items) {
       const anchor = workItemAnchor(item);
-      const existing = findByAnchor.get(anchor) as { id: string; created_at: number } | undefined;
+      const existing = findByAnchor.get(anchor) as { id: string; created_at: number; tags: string } | undefined;
       const id = existing?.id ?? crypto.randomUUID();
       const createdAt = existing?.created_at ?? now;
+      const tags = existing?.tags ?? "[]";
       insert.run(
         id, anchor, item.title,
         item.linear ? JSON.stringify(item.linear) : null,
         JSON.stringify(item.prs), JSON.stringify(item.agents),
-        createdAt, now,
+        tags, createdAt, now,
       );
     }
   });
@@ -198,6 +206,33 @@ export function needsSync(service: string): boolean {
 
 export function resetSyncStatus(service: string): void {
   getDb().prepare("DELETE FROM sync_status WHERE service = ?").run(service);
+}
+
+// --- Tags ---
+
+export function addWorkItemTag(workItemId: string, tag: string): string[] {
+  const d = getDb();
+  const row = d.prepare("SELECT tags FROM work_items WHERE id = ?").get(workItemId) as { tags: string } | undefined;
+  if (!row) return [];
+  const tags: string[] = JSON.parse(row.tags);
+  if (tags.includes(tag)) return tags;
+  tags.push(tag);
+  d.prepare("UPDATE work_items SET tags = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(tags), Date.now(), workItemId);
+  d.prepare("INSERT OR IGNORE INTO tags (tag) VALUES (?)").run(tag);
+  return tags;
+}
+
+export function removeWorkItemTag(workItemId: string, tag: string): string[] {
+  const d = getDb();
+  const row = d.prepare("SELECT tags FROM work_items WHERE id = ?").get(workItemId) as { tags: string } | undefined;
+  if (!row) return [];
+  const tags: string[] = JSON.parse(row.tags).filter((t: string) => t !== tag);
+  d.prepare("UPDATE work_items SET tags = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(tags), Date.now(), workItemId);
+  return tags;
+}
+
+export function getAllTags(): string[] {
+  return (getDb().prepare("SELECT tag FROM tags ORDER BY tag").all() as { tag: string }[]).map(r => r.tag);
 }
 
 // --- Anchor helpers ---

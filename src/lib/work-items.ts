@@ -16,6 +16,7 @@ export function buildWorkItems(
       linear: issue,
       prs: [],
       agents: [],
+      tags: [],
     });
   }
 
@@ -63,7 +64,7 @@ export function buildWorkItems(
 
     if (!matched) {
       const key = `orphan-pr-${pr.id}`;
-      items.set(key, { id: "", title: pr.title, prs: [pr], agents: [] });
+      items.set(key, { id: "", title: pr.title, prs: [pr], agents: [], tags: [] });
     }
   }
 
@@ -93,7 +94,7 @@ export function buildWorkItems(
     }
     if (!matched) {
       const key = `orphan-agent-${agent.id}`;
-      items.set(key, { id: "", title: agent.name || agent.id, prs: [], agents: [agent] });
+      items.set(key, { id: "", title: agent.name || agent.id, prs: [], agents: [agent], tags: [] });
     }
   }
 

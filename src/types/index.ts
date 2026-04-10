@@ -60,6 +60,7 @@ export interface WorkItem {
   linear?: LinearIssue;
   prs: GitHubPR[];
   agents: CursorAgent[];
+  tags: string[];
 }
 
 export interface ReviewItem {
