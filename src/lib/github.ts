@@ -58,6 +58,7 @@ export interface RawGitHubPR {
   userDisplayName?: string; // resolved from GitHub API, present on review PRs
   requestedReviewers?: string[]; // individual logins requested for review
   requestedTeams?: string[]; // team slugs requested for review
+  trunkStatus?: "queued" | "merged" | null; // detected from trunk-io[bot] comments
 }
 
 export interface RawGitHubResult {
@@ -104,6 +105,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     checksState: null,
     requestedReviewers: raw.requestedReviewers ?? [],
     requestedTeams: raw.requestedTeams ?? [],
+    trunkStatus: raw.trunkStatus ?? null,
   };
 }
 
@@ -209,6 +211,25 @@ export async function fetchRawAuthoredPRs(
             } catch { /* ignore review fetch errors */ }
           }
 
+          // Detect trunk merge queue status from trunk-io[bot] comments (open PRs only)
+          // Trunk adds a checkbox comment to every PR; it's only "queued" when the checkbox is checked
+          let trunkStatus: "queued" | "merged" | null = null;
+          if (pr.state === "open" && !pr.draft) {
+            try {
+              const { data: comments } = await octokit.rest.issues.listComments({
+                owner, repo, issue_number: item.number, per_page: 30,
+              });
+              const trunkComment = comments.find(c => c.user?.login === "trunk-io[bot]");
+              if (trunkComment?.body) {
+                if (trunkComment.body.includes("Merged successfully")) {
+                  trunkStatus = "merged";
+                } else if (trunkComment.body.includes("- [x]")) {
+                  trunkStatus = "queued";
+                }
+              }
+            } catch { /* ignore */ }
+          }
+
           return {
             id: item.id,
             title: pr.title,
@@ -226,6 +247,7 @@ export async function fetchRawAuthoredPRs(
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
             reviews,
+            trunkStatus,
           } satisfies RawGitHubPR;
         } catch {
           // Fallback to search data

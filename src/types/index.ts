@@ -29,6 +29,7 @@ export interface GitHubPR {
   checksState: string | null; // SUCCESS, FAILURE, PENDING, ERROR, EXPECTED, or null
   requestedReviewers: string[]; // individual logins requested for review
   requestedTeams: string[]; // team slugs requested for review
+  trunkStatus: "queued" | "merged" | null; // from trunk-io[bot] PR comments
 }
 
 export interface CursorAgent {

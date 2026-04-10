@@ -123,8 +123,9 @@ function ChecksIcon({ state }: { state: string | null }) {
   }
 }
 
-function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; color: string } {
+function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null; trunkStatus?: "queued" | "merged" | null }): { text: string; color: string } {
   if (pr.merged) return { text: "merged", color: "text-status-purple" };
+  if (pr.trunkStatus === "queued") return { text: "in trunk queue", color: "text-status-blue" };
   if (pr.draft) return { text: "draft", color: "text-text-tertiary" };
   switch (pr.reviewDecision) {
     case "APPROVED": return { text: "approved", color: "text-status-green" };
@@ -231,11 +232,14 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
   );
 }
 
-function SectionHeader({ label, count, colSpan }: { label: string; count: number; colSpan: number }) {
+function SectionHeader({ label, count, colSpan, collapsed, onToggle }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void }) {
   return (
     <tr className={sectionHeaderClass}>
       <td colSpan={colSpan} className="pt-4 pb-1 px-2">
-        <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({count})</span></span>
+        <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer">
+          <span className="inline-block w-4 text-xs">{collapsed ? "▸" : "▾"}</span>
+          {label} <span className="font-normal">({count})</span>
+        </button>
       </td>
     </tr>
   );
@@ -352,7 +356,7 @@ function reviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: stri
   return { personal, team, draft };
 }
 
-function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void }) {
+function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
   const groups = useMemo(() => {
     const built = buildReviewItems(prs, issues);
     const favs: ReviewItem[] = [];
@@ -405,8 +409,8 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
         </thead>
         {groups.map(({ label, items }) => (
         <tbody key={label}>
-          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} />}
-          {items.map(item => (
+          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
+          {!collapsed.has(label) && items.map(item => (
             <tr key={item.key} className={tableRowClass}>
               <td className="py-1.5 px-0 text-center w-[24px]">
                 <FavoriteButton id={item.key} isFavorite={favorites.has(item.key)} onToggle={onToggleFavorite} />
@@ -538,6 +542,8 @@ function WorkItemTable({
   favorites,
   onToggleFavorite,
   onAgentCreated,
+  collapsed,
+  onToggleCollapsed,
 }: {
   groups: { label: string; items: WorkItem[] }[];
   errors: string[];
@@ -545,6 +551,8 @@ function WorkItemTable({
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
   onAgentCreated: () => void;
+  collapsed: Set<string>;
+  onToggleCollapsed: (label: string) => void;
 }) {
   const colCount = 8;
   return (
@@ -575,8 +583,8 @@ function WorkItemTable({
       </thead>
       {groups.map(({ label, items }) => (
       <tbody key={label}>
-        {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} />}
-        {items.map((item) => {
+        {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
+        {!collapsed.has(label) && items.map((item) => {
           const lastUpdated = getLastUpdated(item);
           return (
             <tr
@@ -743,13 +751,14 @@ function isItemClosed(item: WorkItem): boolean {
   return false;
 }
 
-type ActionGroup = "ready" | "verify" | "review" | "changes" | "draft" | "other";
+type ActionGroup = "queued" | "ready" | "verify" | "review" | "changes" | "draft" | "other";
 
 function getActionGroup(item: WorkItem): ActionGroup {
   if (item.linear?.status.toLowerCase() === "verify") return "verify";
   const pr = item.prs[0];
   if (pr) {
     if (pr.merged) return "other";
+    if (pr.trunkStatus === "queued") return "queued";
     if (pr.reviewDecision === "APPROVED") return "ready";
     if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
     if (pr.draft) return "draft";
@@ -759,6 +768,7 @@ function getActionGroup(item: WorkItem): ActionGroup {
 }
 
 const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
+  queued: "In trunk queue",
   ready: "Approved",
   verify: "Verify",
   review: "Waiting",
@@ -767,7 +777,7 @@ const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
   other: "Other",
 };
 
-const ACTION_GROUP_ORDER: ActionGroup[] = ["verify", "ready", "changes", "review", "draft", "other"];
+const ACTION_GROUP_ORDER: ActionGroup[] = ["verify", "queued", "ready", "changes", "review", "draft", "other"];
 
 function groupByAction(items: WorkItem[], favorites: Set<string>): { group: ActionGroup; label: string; items: WorkItem[] }[] {
   const favItems: WorkItem[] = [];
@@ -1165,6 +1175,21 @@ function Home() {
       return next;
     });
   }, []);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const saved = localStorage.getItem("dashboard:collapsed");
+      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  const toggleCollapsed = useCallback((label: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      localStorage.setItem("dashboard:collapsed", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -1293,7 +1318,7 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue prs={reviewPrs} issues={reviewIssues} viewerLogin={viewerLogin} favorites={favorites} onToggleFavorite={toggleFavorite} />
+          <ReviewQueue prs={reviewPrs} issues={reviewIssues} viewerLogin={viewerLogin} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
           {reviewPrs.length === 0 && reviewIssues.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
           )}
@@ -1307,6 +1332,8 @@ function Home() {
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
             onAgentCreated={refreshAll}
+            collapsed={collapsed}
+            onToggleCollapsed={toggleCollapsed}
           />
           {displayItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">
