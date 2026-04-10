@@ -1340,7 +1340,7 @@ function Home() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setParam = useCallback((key: string, value: string, defaultValue: string) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.delete("view"); // clean up legacy param
     if (value === defaultValue) {
       params.delete(key);
@@ -1349,7 +1349,7 @@ function Home() {
     }
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : "/");
-  }, [searchParams]);
+  }, []);
 
   const setTab = useCallback((t: Tab) => { setTabState(t); setParam("tab", t, "tasks"); }, [setParam]);
   const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
