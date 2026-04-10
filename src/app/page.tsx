@@ -1482,7 +1482,6 @@ function Home() {
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
         />
-        <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />
         <button
           onClick={refreshAll}
           disabled={anyLoading}
@@ -1510,6 +1509,7 @@ function Home() {
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
         <div className="flex-1" />
+        {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
             options={[
