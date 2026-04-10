@@ -555,7 +555,7 @@ function WorkItemTable({
   onAgentCreated,
   collapsed,
   onToggleCollapsed,
-  blockerData,
+  allTags,
   onAddTag,
   onRemoveTag,
 }: {
@@ -567,7 +567,7 @@ function WorkItemTable({
   onAgentCreated: () => void;
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
-  blockerData: BlockerData;
+  allTags: string[];
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
 }) {
@@ -637,8 +637,8 @@ function WorkItemTable({
               <td className="py-1.5 px-2">
                 <BlockerTags
                   itemId={item.id}
-                  tags={blockerData.tags[item.id] ?? []}
-                  allTags={blockerData.allTags}
+                  tags={item.tags}
+                  allTags={allTags}
                   onAdd={onAddTag}
                   onRemove={onRemoveTag}
                 >
@@ -1137,6 +1137,7 @@ function useWorkItems(intervalMs = 300000) {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [viewerLogin, setViewerLogin] = useState("");
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [stats, setStats] = useState<ApiStatRow[]>([]);
   const [recent, setRecent] = useState<ApiCallRecord[]>([]);
@@ -1151,6 +1152,7 @@ function useWorkItems(intervalMs = 300000) {
     setItems(json.items ?? []);
     setReviewItems(json.reviewItems ?? []);
     if (json.viewerLogin) setViewerLogin(json.viewerLogin);
+    if (json.allTags) setAllTags(json.allTags);
     const rls: RateLimitInfo[] = [];
     if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
     if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
@@ -1219,7 +1221,34 @@ function useWorkItems(intervalMs = 300000) {
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
 
-  return { items, reviewItems, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh };
+  const addTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId && !item.tags.includes(tag)
+        ? { ...item, tags: [...item.tags, tag] }
+        : item
+    ));
+    setAllTags(prev => prev.includes(tag) ? prev : [...prev, tag].sort());
+    fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId
+        ? { ...item, tags: item.tags.filter(t => t !== tag) }
+        : item
+    ));
+    fetch("/api/tags", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, addTag, removeTag };
 }
 
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
@@ -1339,11 +1368,6 @@ function getTagColor(name: string) {
     hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
   }
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
-
-interface BlockerData {
-  tags: Record<string, string[]>;
-  allTags: string[];
 }
 
 function BlockerTags({
@@ -1528,7 +1552,7 @@ function BlockerTags({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewItems, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, addTag, removeTag } = useWorkItems();
 
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
@@ -1626,35 +1650,6 @@ function Home() {
     });
   }, []);
 
-  const [blockerData, setBlockerData] = useState<BlockerData>(() => {
-    if (typeof window === "undefined") return { tags: {}, allTags: [] };
-    try {
-      const saved = localStorage.getItem("dashboard:blockers");
-      return saved ? JSON.parse(saved) : { tags: {}, allTags: [] };
-    } catch { return { tags: {}, allTags: [] }; }
-  });
-  const addTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = prev.tags[itemId] ?? [];
-      if (itemTags.includes(tag)) return prev;
-      const next: BlockerData = {
-        tags: { ...prev.tags, [itemId]: [...itemTags, tag] },
-        allTags: prev.allTags.includes(tag) ? prev.allTags : [...prev.allTags, tag],
-      };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
-  const removeTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = (prev.tags[itemId] ?? []).filter(t => t !== tag);
-      const nextTags = { ...prev.tags };
-      if (itemTags.length === 0) delete nextTags[itemId]; else nextTags[itemId] = itemTags;
-      const next: BlockerData = { tags: nextTags, allTags: prev.allTags };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -1844,7 +1839,7 @@ function Home() {
             onAgentCreated={refreshAll}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
-            blockerData={blockerData}
+            allTags={allTags}
             onAddTag={addTag}
             onRemoveTag={removeTag}
           />

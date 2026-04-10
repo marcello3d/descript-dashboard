@@ -1,5 +1,5 @@
 import { sync } from "@/lib/sync";
-import { getWorkItems, getReviewItems, getSyncStatus } from "@/lib/db";
+import { getWorkItems, getReviewItems, getSyncStatus, getAllTags } from "@/lib/db";
 import { getApiCallStats, getRecentApiCalls } from "@/lib/cache";
 
 export async function GET(request: Request) {
@@ -11,10 +11,12 @@ export async function GET(request: Request) {
       function emit(done: boolean, step: number, totalSteps: number, result: { viewerLogin: string; rateLimits: Record<string, unknown>; errors: string[] }) {
         const items = getWorkItems();
         const reviewItems = getReviewItems();
+        const allTags = getAllTags();
         const line = JSON.stringify({
           viewerLogin: result.viewerLogin,
           items,
           reviewItems,
+          allTags,
           rateLimits: result.rateLimits,
           errors: [...result.errors],
           stats: getApiCallStats(),
