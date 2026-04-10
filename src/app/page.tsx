@@ -216,17 +216,23 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 }
 
 function PrCellLink({ pr }: { pr: GitHubPR }) {
+  const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
     <a
       href={pr.url}
       target="_blank"
       rel="noopener noreferrer"
       className={cellLinkFlex}
-      title={getPrStatusInfo(pr).text}
+      title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
     >
       <PrStatusIcon pr={pr} />
       <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
       <ReviewIcon decision={pr.reviewDecision} />
+      {isStacked && (
+        <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
+          &rarr; {pr.baseBranch}
+        </span>
+      )}
     </a>
   );
 }
@@ -544,7 +550,7 @@ function WorkItemTable({
   collapsed,
   onToggleCollapsed,
 }: {
-  groups: { label: string; items: WorkItem[] }[];
+  groups: { label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
   errors: string[];
   dimmed?: boolean;
   favorites: Set<string>;
@@ -580,10 +586,11 @@ function WorkItemTable({
           </th>
         </tr>
       </thead>
-      {groups.map(({ label, items }) => (
+      {groups.map(({ label, items, stackMetaMap }) => (
       <tbody key={label}>
         {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
         {!collapsed.has(label) && items.map((item) => {
+          const stackMeta = stackMetaMap?.get(item.id);
           const lastUpdated = getLastUpdated(item);
           return (
             <tr
@@ -616,19 +623,27 @@ function WorkItemTable({
                 })()}
               </td>
               <td className="py-1.5 px-2">
-                {(() => {
-                  const isClosed = isItemClosed(item);
-                  return (
-                    <a
-                      href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
-                    >
-                      {item.title}
-                    </a>
-                  );
-                })()}
+                <div className="flex items-center">
+                  {stackMeta && stackMeta.depth > 0 && (
+                    <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
+                      {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
+                      {stackMeta.isLast ? "└─" : "├─"}{" "}
+                    </span>
+                  )}
+                  {(() => {
+                    const isClosed = isItemClosed(item);
+                    return (
+                      <a
+                        href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
+                      >
+                        {item.title}
+                      </a>
+                    );
+                  })()}
+                </div>
               </td>
               <td className="py-1.5 px-0 text-center w-[24px]">
                 {item.linear && item.linear.priority > 0 && (
@@ -709,7 +724,7 @@ function WorkItemTable({
   );
 }
 
-type ViewMode = "stage" | "date" | "priority" | "review";
+type ViewMode = "stage" | "date" | "priority" | "stack" | "review";
 
 function ToggleGroup<T extends string>({
   options,
@@ -822,6 +837,106 @@ function groupByPriority(items: WorkItem[], favorites: Set<string>): { group: Ac
   if (favItems.length > 0) {
     groups.unshift({ group: "other" as ActionGroup, label: "Favorites", items: favItems });
   }
+  return groups;
+}
+
+interface StackMeta {
+  depth: number;
+  isLast: boolean;
+  parentLines: boolean[];
+}
+
+function flattenTree(
+  item: WorkItem,
+  childrenMap: Map<string, WorkItem[]>,
+  depth: number,
+  parentLines: boolean[],
+  isLast: boolean,
+): { item: WorkItem; meta: StackMeta }[] {
+  const result: { item: WorkItem; meta: StackMeta }[] = [];
+  result.push({ item, meta: { depth, isLast, parentLines: [...parentLines] } });
+  const branch = item.prs[0]?.branch;
+  const children = branch ? childrenMap.get(branch) ?? [] : [];
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const childIsLast = i === children.length - 1;
+    if (children.length === 1 && depth === 0) {
+      result.push(...flattenTree(child, childrenMap, 0, [], isLast));
+    } else {
+      const nextParentLines = depth > 0 ? [...parentLines, !isLast] : [];
+      result.push(...flattenTree(child, childrenMap, depth + 1, nextParentLines, childIsLast));
+    }
+  }
+  return result;
+}
+
+function groupByStack(
+  items: WorkItem[],
+  favorites: Set<string>,
+): { group: ActionGroup; label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[] {
+  const favItems: WorkItem[] = [];
+  const rest: WorkItem[] = [];
+  for (const item of items) {
+    if (favorites.has(item.id)) favItems.push(item);
+    else rest.push(item);
+  }
+
+  const branchToItem = new Map<string, WorkItem>();
+  for (const item of rest) {
+    const branch = item.prs[0]?.branch;
+    if (branch) branchToItem.set(branch, item);
+  }
+
+  const childrenMap = new Map<string, WorkItem[]>();
+  const hasParent = new Set<string>();
+  for (const item of rest) {
+    const baseBranch = item.prs[0]?.baseBranch;
+    if (!baseBranch || baseBranch === "main" || baseBranch === "master") continue;
+    if (branchToItem.has(baseBranch)) {
+      const list = childrenMap.get(baseBranch) ?? [];
+      list.push(item);
+      childrenMap.set(baseBranch, list);
+      hasParent.add(item.id);
+    }
+  }
+
+  const roots: WorkItem[] = [];
+  const standalone: WorkItem[] = [];
+  for (const item of rest) {
+    if (hasParent.has(item.id)) continue;
+    const branch = item.prs[0]?.branch;
+    if (branch && childrenMap.has(branch)) {
+      roots.push(item);
+    } else {
+      standalone.push(item);
+    }
+  }
+
+  const groups: { group: ActionGroup; label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[] = [];
+
+  if (favItems.length > 0) {
+    groups.push({ group: "other" as ActionGroup, label: "Favorites", items: favItems });
+  }
+
+  for (const root of roots) {
+    const flat = flattenTree(root, childrenMap, 0, [], true);
+    const label = root.linear
+      ? `${root.linear.identifier} ${root.title}`
+      : root.title;
+    const metaMap = new Map<string, StackMeta>();
+    for (const f of flat) metaMap.set(f.item.id, f.meta);
+    groups.push({
+      group: "other" as ActionGroup,
+      label,
+      items: flat.map(f => f.item),
+      stackMetaMap: metaMap,
+    });
+  }
+
+  if (standalone.length > 0) {
+    groups.push({ group: "other" as ActionGroup, label: "No stack", items: standalone });
+  }
+
   return groups;
 }
 
@@ -1118,7 +1233,7 @@ function Home() {
 
 
   type Tab = "tasks" | "review";
-  type SortMode = "stage" | "priority" | "date";
+  type SortMode = "stage" | "priority" | "stack" | "date";
   const [tab, setTabState] = useState<Tab>("tasks");
   const [sort, setSortState] = useState<SortMode>("stage");
   const [repoFilter, setRepoFilterState] = useState("descript");
@@ -1135,7 +1250,7 @@ function Home() {
       else if (legacyView === "stage" || legacyView === "priority" || legacyView === "date") { setSortState(legacyView); }
     }
     if (t) setTabState(t);
-    if (s && (s === "stage" || s === "priority" || s === "date")) setSortState(s);
+    if (s && (s === "stage" || s === "priority" || s === "stack" || s === "date")) setSortState(s);
     if (r && r !== repoFilter) setRepoFilterState(r);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1223,6 +1338,7 @@ function Home() {
     const sorted = sortByDate(items);
     if (view === "stage") return groupByAction(sorted, favorites);
     if (view === "priority") return groupByPriority(sorted, favorites);
+    if (view === "stack") return groupByStack(sorted, favorites);
     return [{ group: "other" as ActionGroup, label: "", items: sorted }];
   }, [view, open, allItems, favorites]);
 
@@ -1296,6 +1412,7 @@ function Home() {
             options={[
               { value: "stage" as ViewMode, label: "Status" },
               { value: "priority" as ViewMode, label: "Priority" },
+              { value: "stack" as ViewMode, label: "Stack" },
               { value: "date" as ViewMode, label: "All" },
             ]}
             value={sort}

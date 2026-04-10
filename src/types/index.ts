@@ -17,6 +17,7 @@ export interface GitHubPR {
   authorLogin: string; // GitHub username
   repo: string;
   branch: string;
+  baseBranch: string;
   draft: boolean;
   merged: boolean;
   closed: boolean;

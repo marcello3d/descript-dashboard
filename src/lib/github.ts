@@ -45,6 +45,7 @@ export interface RawGitHubPR {
   owner: string;
   repo: string;
   branch: string;
+  baseBranch: string;
   draft: boolean;
   merged: boolean;
   state: string;
@@ -92,6 +93,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     authorLogin: raw.userLogin,
     repo: `${raw.owner}/${raw.repo}`,
     branch: raw.branch,
+    baseBranch: raw.baseBranch,
     draft: raw.draft,
     merged: raw.merged,
     closed: raw.state === "closed" && !raw.merged,
@@ -216,6 +218,7 @@ export async function fetchRawAuthoredPRs(
             owner,
             repo,
             branch: pr.head.ref,
+            baseBranch: pr.base.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
             state: pr.state,
@@ -236,6 +239,7 @@ export async function fetchRawAuthoredPRs(
             owner,
             repo,
             branch: "",
+            baseBranch: "",
             draft: item.draft ?? false,
             merged: item.pull_request?.merged_at != null,
             state: item.state,
@@ -320,6 +324,7 @@ export async function fetchRawPrsByUrls(
             owner,
             repo,
             branch: pr.head.ref,
+            baseBranch: pr.base.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
             state: pr.state,
@@ -394,6 +399,7 @@ export async function fetchRawReviewRequestedPRs(
             owner,
             repo,
             branch: pr.head.ref,
+            baseBranch: pr.base.ref,
             draft: pr.draft ?? false,
             merged: pr.merged,
             state: pr.state,
@@ -415,6 +421,7 @@ export async function fetchRawReviewRequestedPRs(
             owner,
             repo,
             branch: "",
+            baseBranch: "",
             draft: item.draft ?? false,
             merged: false,
             state: "open",
