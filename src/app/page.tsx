@@ -123,9 +123,8 @@ function ChecksIcon({ state }: { state: string | null }) {
   }
 }
 
-function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null; trunkStatus?: "queued" | "merged" | null }): { text: string; color: string } {
+function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; color: string } {
   if (pr.merged) return { text: "merged", color: "text-status-purple" };
-  if (pr.trunkStatus === "queued") return { text: "in trunk queue", color: "text-status-blue" };
   if (pr.draft) return { text: "draft", color: "text-text-tertiary" };
   switch (pr.reviewDecision) {
     case "APPROVED": return { text: "approved", color: "text-status-green" };
@@ -751,14 +750,13 @@ function isItemClosed(item: WorkItem): boolean {
   return false;
 }
 
-type ActionGroup = "queued" | "ready" | "verify" | "review" | "changes" | "draft" | "other";
+type ActionGroup = "ready" | "verify" | "review" | "changes" | "draft" | "other";
 
 function getActionGroup(item: WorkItem): ActionGroup {
   if (item.linear?.status.toLowerCase() === "verify") return "verify";
   const pr = item.prs[0];
   if (pr) {
     if (pr.merged) return "other";
-    if (pr.trunkStatus === "queued") return "queued";
     if (pr.reviewDecision === "APPROVED") return "ready";
     if (pr.reviewDecision === "CHANGES_REQUESTED") return "changes";
     if (pr.draft) return "draft";
@@ -768,7 +766,6 @@ function getActionGroup(item: WorkItem): ActionGroup {
 }
 
 const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
-  queued: "In trunk queue",
   ready: "Approved",
   verify: "Verify",
   review: "Waiting",
@@ -777,7 +774,7 @@ const ACTION_GROUP_LABELS: Record<ActionGroup, string> = {
   other: "Other",
 };
 
-const ACTION_GROUP_ORDER: ActionGroup[] = ["verify", "queued", "ready", "changes", "review", "draft", "other"];
+const ACTION_GROUP_ORDER: ActionGroup[] = ["verify", "ready", "changes", "review", "draft", "other"];
 
 function groupByAction(items: WorkItem[], favorites: Set<string>): { group: ActionGroup; label: string; items: WorkItem[] }[] {
   const favItems: WorkItem[] = [];
