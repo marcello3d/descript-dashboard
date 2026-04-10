@@ -289,7 +289,7 @@ async function fetchGitHub(bypass: boolean, errors: string[]) {
   }
 
   try {
-    const previous = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB, true) ?? undefined;
+    const previous = bypass ? undefined : getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB, true) ?? undefined;
     const start = Date.now();
     const { prs, rateLimit, searchRateLimit } = await dedupe("github:prs", () => fetchRawAuthoredPRs(token, previous));
     logApiCall("github", "prs", "ok", Date.now() - start, { cost: rateLimit?.cost });
@@ -356,7 +356,7 @@ async function fetchGitHubReviews(bypass: boolean, errors: string[]) {
   }
 
   try {
-    const previous = getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS, true) ?? undefined;
+    const previous = bypass ? undefined : getCached<RawGitHubPR[]>(CACHE_KEY_GITHUB_REVIEWS, true) ?? undefined;
     const start = Date.now();
     const { prs, viewerLogin } = await dedupe("github:reviews", () => fetchRawReviewRequestedPRs(token, previous));
     logApiCall("github", "reviews", "ok", Date.now() - start);
