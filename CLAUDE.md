@@ -32,6 +32,12 @@ The `/api/work-items` endpoint streams newline-delimited JSON. Each line is a fu
 - **Stage groups** (when sort=stage): verify → approved → changes requested → waiting → draft → other
 - **`getActionGroup()`** determines stage; Linear "verify" status takes priority over PR state
 
+### Shared CSS classes (page.tsx)
+
+- **`iconButtonClass`** — standard style for icon-only buttons: `text-text-tertiary hover:text-text-secondary transition-colors p-1`. Add `aria-label` for accessibility.
+- **`cellLink` / `cellLinkFlex`** — clickable cell elements with hover background
+- **`tableRowClass`** — table rows with `group` class (enables `group-hover` for child elements)
+
 ## Debugging
 
 - Dev server: `npm run dev` (port 4080)

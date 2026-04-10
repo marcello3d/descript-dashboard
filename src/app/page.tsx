@@ -187,9 +187,10 @@ function getPrNumber(url: string): string {
 
 const theadClass = "sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]";
 const sectionHeaderClass = "sticky top-[84px] z-[5] bg-surface-alt";
-const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors";
+const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
 const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
+const iconButtonClass = "text-text-tertiary hover:text-text-secondary transition-all p-1";
 
 function ChangesSummary({ files, additions, deletions, url }: { files: number; additions: number; deletions: number; url?: string | null }) {
   if (files === 0 && additions === 0 && deletions === 0) return null;
@@ -218,22 +219,53 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <a
-      href={pr.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cellLinkFlex}
-      title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+    <span className="inline-flex items-center gap-1">
+      <a
+        href={pr.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cellLinkFlex}
+        title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+      >
+        <PrStatusIcon pr={pr} />
+        <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
+        <ReviewIcon decision={pr.reviewDecision} />
+        {isStacked && (
+          <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
+            &rarr; {pr.baseBranch}
+          </span>
+        )}
+      </a>
+      <CopyBranchButton branch={pr.branch} />
+    </span>
+  );
+}
+
+function CopyBranchButton({ branch }: { branch: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={`${iconButtonClass} opacity-0 group-hover:opacity-100`}
+      title={`Copy branch: ${branch}`}
+      aria-label={`Copy branch name: ${branch}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(branch);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
     >
-      <PrStatusIcon pr={pr} />
-      <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
-      <ReviewIcon decision={pr.reviewDecision} />
-      {isStacked && (
-        <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
-          &rarr; {pr.baseBranch}
-        </span>
+      {copied ? (
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+      ) : (
+        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+        </svg>
       )}
-    </a>
+    </button>
   );
 }
 
@@ -427,11 +459,14 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
                 })()}
               </td>
               <td className="py-1.5 px-2">
-                <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
-                  <PrStatusIcon pr={item.pr} />
-                  <span className="text-xs text-text-tertiary font-mono">#{item.pr ? getPrNumber(item.pr.url) : ""}</span>
-                  {item.title}
-                </a>
+                <span className="inline-flex items-center gap-1.5">
+                  <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
+                    <PrStatusIcon pr={item.pr} />
+                    <span className="text-xs text-text-tertiary font-mono">#{item.pr ? getPrNumber(item.pr.url) : ""}</span>
+                    {item.title}
+                  </a>
+                  {item.pr && <CopyBranchButton branch={item.pr.branch} />}
+                </span>
               </td>
               <td className="py-1.5 px-2 whitespace-nowrap">
                 {item.pr?.authorLogin ? (
@@ -785,7 +820,9 @@ function isItemClosed(item: WorkItem): boolean {
   const status = item.linear?.status.toLowerCase();
   if (status === "canceled" || status === "cancelled" || status === "done" || status === "completed") return true;
   const isVerify = status === "verify";
-  if (item.prs.some(pr => pr.merged) && !isVerify) return true;
+  const openPrs = item.prs.filter(pr => !pr.closed && !pr.merged);
+  const hasMerged = item.prs.some(pr => pr.merged);
+  if (hasMerged && openPrs.length === 0 && !isVerify) return true;
   if (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) return true;
   return false;
 }
@@ -1389,7 +1426,7 @@ function Home() {
 
   return (
     <div className="w-full px-4 py-4">
-      <header className="mb-3 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+      <header className="mb-1 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
@@ -1403,8 +1440,9 @@ function Home() {
         <button
           onClick={refreshAll}
           disabled={anyLoading}
-          className="text-text-tertiary hover:text-text-secondary disabled:opacity-50 p-1"
+          className={`${iconButtonClass} disabled:opacity-50`}
           title="Refresh all"
+          aria-label="Refresh all"
         >
           <svg
             className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
