@@ -1205,7 +1205,7 @@ function useWorkItems(intervalMs = 300000) {
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const allChecked = value.size === 2;
+  const allChecked = value.size === 0 || value.size === 2;
 
   useEffect(() => {
     if (!open) return;
@@ -1240,8 +1240,8 @@ function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc
               onClick={() => onToggle(svc.key)}
               className="flex items-center gap-2 w-full text-left text-xs px-3 py-1.5 transition-colors text-text-secondary hover:bg-surface-hover"
             >
-              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${value.has(svc.key) ? "bg-blue-500 border-blue-500 text-white" : "border-border"}`}>
-                {value.has(svc.key) && (
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${(allChecked || value.has(svc.key)) ? "bg-blue-500 border-blue-500 text-white" : "border-border"}`}>
+                {(allChecked || value.has(svc.key)) && (
                   <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
@@ -1299,6 +1299,8 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
   );
 }
 
+const ALL_SERVICES = new Set(["linear", "github"]);
+
 function Home() {
   const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
 
@@ -1317,8 +1319,7 @@ function Home() {
   const [tab, setTabState] = useState<Tab>("tasks");
   const [sort, setSortState] = useState<SortMode>("stage");
   const [repoFilter, setRepoFilterState] = useState("descript");
-  const ALL_SERVICES = new Set(["linear", "github"]);
-  const [serviceFilter, setServiceFilterState] = useState<Set<string>>(new Set(ALL_SERVICES));
+  const [serviceFilter, setServiceFilterState] = useState<Set<string>>(new Set<string>());
 
   // Sync from URL on mount
   useEffect(() => {
@@ -1358,13 +1359,16 @@ function Home() {
   const setRepoFilter = useCallback((v: string) => { setRepoFilterState(v); setParam("repo", v, "descript"); }, [setParam]);
   const toggleServiceFilter = useCallback((svc: string) => {
     setServiceFilterState(prev => {
-      const next = new Set(prev);
-      if (next.has(svc)) next.delete(svc); else next.add(svc);
-      const val = [...next].sort().join(",");
-      setParam("svc", val, "github,linear");
-      return next;
+      const expanded = prev.size === 0 ? new Set(ALL_SERVICES) : new Set(prev);
+      if (expanded.has(svc)) expanded.delete(svc); else expanded.add(svc);
+      if (expanded.size === 2) return new Set<string>();
+      return expanded;
     });
-  }, [setParam]);
+  }, []);
+  useEffect(() => {
+    const val = serviceFilter.size === 0 ? "" : [...serviceFilter].sort().join(",");
+    setParam("svc", val, "");
+  }, [serviceFilter, setParam]);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -1413,7 +1417,7 @@ function Home() {
         return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
       });
     }
-    if (serviceFilter.size > 0 && serviceFilter.size < 2) {
+    if (serviceFilter.size === 1) {
       items = items.filter(item => {
         if (serviceFilter.has("linear") && item.linear) return true;
         if (serviceFilter.has("github") && item.prs.length > 0) return true;
