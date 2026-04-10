@@ -7,14 +7,20 @@ import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 
+const CLOSED_PR_ICON_PATH = "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
+
+function ClosedPrIcon({ className = "w-3.5 h-3.5 flex-shrink-0" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="#cf222e">
+      <path d={CLOSED_PR_ICON_PATH} />
+    </svg>
+  );
+}
+
 // GitHub PR status icons (Octicons)
 function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?: boolean } }) {
   if (!pr) return <SiGithub className="w-3.5 h-3.5 text-text-muted" />;
-  if (pr.closed) return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="#cf222e">
-      <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
-    </svg>
-  );
+  if (pr.closed) return <ClosedPrIcon />;
   if (pr.merged) return (
     <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="#8250df">
       <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
@@ -1256,7 +1262,7 @@ function useWorkItems(intervalMs = 300000) {
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const allChecked = value.size === 0 || value.size === 2;
+  const allChecked = value.size === 0 || value.size === ALL_SERVICES.size;
 
   useEffect(() => {
     if (!open) return;
@@ -1270,6 +1276,7 @@ function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc
   const services = [
     { key: "linear", label: "Linear", icon: <SiLinear className="w-3.5 h-3.5 text-[#5E6AD2]" /> },
     { key: "github", label: "GitHub", icon: <SiGithub className="w-3.5 h-3.5" /> },
+    { key: "closed", label: "Closed PRs", icon: <ClosedPrIcon /> },
   ];
 
   return (
@@ -1350,7 +1357,7 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
   );
 }
 
-const ALL_SERVICES = new Set(["linear", "github"]);
+const ALL_SERVICES = new Set(["linear", "github", "closed"]);
 
 const TAG_COLORS = [
   { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/25" },
@@ -1617,7 +1624,7 @@ function Home() {
     setServiceFilterState(prev => {
       const expanded = prev.size === 0 ? new Set(ALL_SERVICES) : new Set(prev);
       if (expanded.has(svc)) expanded.delete(svc); else expanded.add(svc);
-      if (expanded.size === 2) return new Set<string>();
+      if (expanded.size === ALL_SERVICES.size) return new Set<string>();
       return expanded;
     });
   }, []);
@@ -1703,12 +1710,40 @@ function Home() {
         return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
       });
     }
-    if (serviceFilter.size === 1) {
-      items = items.filter(item => {
-        if (serviceFilter.has("linear") && item.linear) return true;
-        if (serviceFilter.has("github") && item.prs.length > 0) return true;
-        return false;
-      });
+    const showAll = serviceFilter.size === 0 || serviceFilter.size === ALL_SERVICES.size;
+    if (!showAll) {
+      const showClosed = serviceFilter.has("closed");
+      const showLinear = serviceFilter.has("linear");
+      const showGithub = serviceFilter.has("github");
+
+      if (!showClosed) {
+        items = items.flatMap(item => {
+          const hadClosed = item.prs.some(pr => pr.closed);
+          if (!hadClosed) return [item];
+          const openPrs = item.prs.filter(pr => !pr.closed);
+          if (openPrs.length === 0) return [];
+          const updated: WorkItem = { ...item, prs: openPrs };
+          if (updated.linear?.prUrls?.length) {
+            const closedUrls = new Set(item.prs.filter(pr => pr.closed).map(pr => pr.url));
+            const filteredUrls = updated.linear.prUrls.filter(u => !closedUrls.has(u));
+            if (filteredUrls.length !== updated.linear.prUrls.length) {
+              updated.linear = { ...updated.linear, prUrls: filteredUrls };
+            }
+          }
+          return [updated];
+        });
+      }
+
+      if (!showLinear || !showGithub) {
+        items = items.filter(item => {
+          if (showLinear && item.linear) return true;
+          if (showGithub && item.prs.length > 0) return true;
+          if (item.agents.length > 0) return true;
+          return false;
+        });
+      }
+
+      items = items.filter(item => item.linear || item.prs.length > 0 || item.agents.length > 0);
     }
     return items;
   }, [allUnfilteredItems, repoFilter, serviceFilter]);
