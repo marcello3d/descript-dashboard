@@ -584,6 +584,9 @@ function WorkItemTable({
   onAgentCreated,
   collapsed,
   onToggleCollapsed,
+  blockerData,
+  onAddTag,
+  onRemoveTag,
 }: {
   groups: { label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
   errors: string[];
@@ -593,8 +596,11 @@ function WorkItemTable({
   onAgentCreated: () => void;
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
+  blockerData: BlockerData;
+  onAddTag: (itemId: string, tag: string) => void;
+  onRemoveTag: (itemId: string, tag: string) => void;
 }) {
-  const colCount = 8;
+  const colCount = 9;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead className={theadClass}>
@@ -615,6 +621,9 @@ function WorkItemTable({
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
             <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<CursorIcon className="w-3.5 h-3.5 text-text-secondary" />} label="Cursor" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
+          </th>
+          <th className="text-left py-2 px-2 w-[180px] min-w-[180px] max-w-[180px]">
+            <span className="text-xs font-medium text-text-secondary">Blockers</span>
           </th>
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
@@ -741,6 +750,15 @@ function WorkItemTable({
                 ) : (
                   <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
+              </td>
+              <td className="py-1.5 px-2 w-[180px] min-w-[180px] max-w-[180px]">
+                <BlockerTags
+                  itemId={item.id}
+                  tags={blockerData.tags[item.id] ?? []}
+                  allTags={blockerData.allTags}
+                  onAdd={onAddTag}
+                  onRemove={onRemoveTag}
+                />
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 <ChangesSummary
@@ -1338,6 +1356,152 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
 
 const ALL_SERVICES = new Set(["linear", "github"]);
 
+const TAG_COLORS = [
+  { bg: "bg-red-500/15", text: "text-red-400", border: "border-red-500/25" },
+  { bg: "bg-orange-500/15", text: "text-orange-400", border: "border-orange-500/25" },
+  { bg: "bg-amber-500/15", text: "text-amber-400", border: "border-amber-500/25" },
+  { bg: "bg-emerald-500/15", text: "text-emerald-400", border: "border-emerald-500/25" },
+  { bg: "bg-cyan-500/15", text: "text-cyan-400", border: "border-cyan-500/25" },
+  { bg: "bg-blue-500/15", text: "text-blue-400", border: "border-blue-500/25" },
+  { bg: "bg-violet-500/15", text: "text-violet-400", border: "border-violet-500/25" },
+  { bg: "bg-pink-500/15", text: "text-pink-400", border: "border-pink-500/25" },
+];
+
+function getTagColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
+}
+
+interface BlockerData {
+  tags: Record<string, string[]>;
+  allTags: string[];
+}
+
+function BlockerTags({
+  itemId,
+  tags,
+  allTags,
+  onAdd,
+  onRemove,
+}: {
+  itemId: string;
+  tags: string[];
+  allTags: string[];
+  onAdd: (itemId: string, tag: string) => void;
+  onRemove: (itemId: string, tag: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setEditing(false);
+        setInput("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [editing]);
+
+  const suggestions = allTags.filter(
+    t => !tags.includes(t) && t.toLowerCase().includes(input.toLowerCase())
+  );
+  const trimmed = input.trim();
+  const canCreate = trimmed.length > 0 && !tags.includes(trimmed) && !allTags.includes(trimmed);
+
+  const commitTag = useCallback((tag: string) => {
+    onAdd(itemId, tag);
+    setInput("");
+    setEditing(false);
+  }, [itemId, onAdd]);
+
+  const dismiss = useCallback(() => {
+    setEditing(false);
+    setInput("");
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex flex-wrap gap-1 items-center">
+      {tags.map(tag => {
+        const c = getTagColor(tag);
+        return (
+          <span
+            key={tag}
+            className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border} group/tag`}
+          >
+            {tag}
+            <button
+              onClick={() => onRemove(itemId, tag)}
+              className="opacity-0 group-hover/tag:opacity-100 ml-0.5 hover:text-text-primary transition-opacity leading-none"
+              aria-label={`Remove ${tag}`}
+            >
+              &times;
+            </button>
+          </span>
+        );
+      })}
+      {editing ? (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && trimmed) commitTag(trimmed);
+              if (e.key === "Escape") dismiss();
+            }}
+            className="text-[11px] bg-transparent border border-border rounded px-1 py-0.5 w-[80px] outline-none text-text-primary"
+            placeholder="tag…"
+          />
+          {(suggestions.length > 0 || canCreate) && (
+            <div className="absolute left-0 top-full mt-0.5 bg-surface border border-border rounded shadow-lg py-0.5 z-40 min-w-[100px] max-h-[120px] overflow-y-auto">
+              {canCreate && (
+                <button
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => commitTag(trimmed)}
+                  className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
+                >
+                  Create &ldquo;{trimmed}&rdquo;
+                </button>
+              )}
+              {suggestions.map(s => {
+                const sc = getTagColor(s);
+                return (
+                  <button
+                    key={s}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => commitTag(s)}
+                    className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
+                  >
+                    <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${sc.bg} border ${sc.border}`} />
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          className="text-text-muted hover:text-text-secondary hover:bg-fill-muted text-xs border border-border rounded px-1.5 py-0.5 transition-colors"
+          title="Add blocker tag"
+        >
+          +
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Home() {
   const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
 
@@ -1433,6 +1597,36 @@ function Home() {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label); else next.add(label);
       localStorage.setItem("dashboard:collapsed", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const [blockerData, setBlockerData] = useState<BlockerData>(() => {
+    if (typeof window === "undefined") return { tags: {}, allTags: [] };
+    try {
+      const saved = localStorage.getItem("dashboard:blockers");
+      return saved ? JSON.parse(saved) : { tags: {}, allTags: [] };
+    } catch { return { tags: {}, allTags: [] }; }
+  });
+  const addTag = useCallback((itemId: string, tag: string) => {
+    setBlockerData(prev => {
+      const itemTags = prev.tags[itemId] ?? [];
+      if (itemTags.includes(tag)) return prev;
+      const next: BlockerData = {
+        tags: { ...prev.tags, [itemId]: [...itemTags, tag] },
+        allTags: prev.allTags.includes(tag) ? prev.allTags : [...prev.allTags, tag],
+      };
+      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    setBlockerData(prev => {
+      const itemTags = (prev.tags[itemId] ?? []).filter(t => t !== tag);
+      const nextTags = { ...prev.tags };
+      if (itemTags.length === 0) delete nextTags[itemId]; else nextTags[itemId] = itemTags;
+      const next: BlockerData = { tags: nextTags, allTags: prev.allTags };
+      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
       return next;
     });
   }, []);
@@ -1597,6 +1791,9 @@ function Home() {
             onAgentCreated={refreshAll}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
+            blockerData={blockerData}
+            onAddTag={addTag}
+            onRemoveTag={removeTag}
           />
           {displayItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">
