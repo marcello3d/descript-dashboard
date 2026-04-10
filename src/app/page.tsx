@@ -1351,7 +1351,8 @@ function Home() {
       summary = formatReviewSummary(reviewPrs, reviewIssues, viewerLogin);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
-      summary = stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
+      const SHORT_LABELS: Record<string, string> = { "Changes requested": "Changes", "Waiting": "Review" };
+      summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
   }, [isReview, reviewPrs, reviewIssues, viewerLogin, open]);
@@ -1363,7 +1364,8 @@ function Home() {
 
   return (
     <div className="w-full px-4 py-4">
-      <header className="flex items-center gap-3 mb-3 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+      <header className="mb-3 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+        <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
@@ -1373,13 +1375,6 @@ function Home() {
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
         />
-        <span className="text-sm text-text-tertiary">
-          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin) : (() => {
-            if (open.length === 0) return "";
-            const stageGroups = groupByAction(sortByDate(open), new Set());
-            return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
-          })()}
-        </span>
         <button
           onClick={refreshAll}
           disabled={anyLoading}
@@ -1420,6 +1415,14 @@ function Home() {
           />
         )}
         {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
+        </div>
+        <div className="text-sm text-text-tertiary mt-1">
+          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin) : (() => {
+            if (open.length === 0) return "";
+            const stageGroups = groupByAction(sortByDate(open), new Set());
+            return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
+          })()}
+        </div>
       </header>
 
       {serviceErrors.length > 0 && (
