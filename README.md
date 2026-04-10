@@ -45,6 +45,14 @@ npm run dev
 - SQLite-backed caching (Linear 5min, GitHub 5min, Cursor 2min) to minimize API calls
 - Dark mode support
 
+## Security
+
+This is a **personal, local-only** dashboard. Keep the following in mind:
+
+- **API keys stay local** -- `.env.local` is gitignored and never committed. Treat your tokens as secrets; rotate them if you suspect exposure.
+- **No authentication on API routes** -- the `/api/work-items` and `/api/cursor-agent` endpoints have no auth. This is fine when running locally, but **do not expose this app to the public internet** without adding authentication first.
+- **Cache contains sensitive data** -- `.cache.db` stores cached API responses (issue titles, PR details, usernames). It is gitignored but lives on disk unencrypted.
+
 ## Debugging
 
 ```sh
