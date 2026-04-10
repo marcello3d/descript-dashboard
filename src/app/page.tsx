@@ -341,11 +341,11 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
   });
 }
 
-function formatReviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): string {
+function formatReviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string, long?: boolean): string {
   const s = reviewSummary(prs, issues, viewerLogin);
   const parts: string[] = [];
-  if (s.personal > 0) parts.push(`${s.personal} personal`);
-  if (s.team > 0) parts.push(`${s.team} team`);
+  if (s.personal > 0) parts.push(`${s.personal} ${long ? "personally requested" : "personal"}`);
+  if (s.team > 0) parts.push(`${s.team} ${long ? "team requested" : "team"}`);
   if (s.draft > 0) parts.push(`${s.draft} draft`);
   return parts.join(" · ");
 }
@@ -731,10 +731,23 @@ function ToggleGroup<T extends string>({
   value,
   onChange,
 }: {
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; hotkey?: string }[];
   value: T | null;
   onChange: (v: T) => void;
 }) {
+  useEffect(() => {
+    const mapped = options.filter(o => o.hotkey).map(o => ({ key: o.hotkey!.toLowerCase(), value: o.value }));
+    if (mapped.length === 0) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const match = mapped.find(m => m.key === e.key.toLowerCase());
+      if (match) { e.preventDefault(); onChange(match.value); }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [options, onChange]);
+
   return (
     <div className="flex rounded-md border border-border overflow-hidden">
       {options.map((opt) => (
@@ -745,10 +758,22 @@ function ToggleGroup<T extends string>({
             value === opt.value ? "toggle-active" : "toggle-inactive"
           }`}
         >
-          {opt.label}
+          {opt.hotkey ? highlightHotkey(opt.label, opt.hotkey) : opt.label}
         </button>
       ))}
     </div>
+  );
+}
+
+function highlightHotkey(label: string, hotkey: string): React.ReactNode {
+  const idx = label.toLowerCase().indexOf(hotkey.toLowerCase());
+  if (idx === -1) return label;
+  return (
+    <>
+      {label.slice(0, idx)}
+      <span className="underline underline-offset-2">{label[idx]}</span>
+      {label.slice(idx + 1)}
+    </>
   );
 }
 
@@ -1369,8 +1394,8 @@ function Home() {
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
-            { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}` },
-            { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}` },
+            { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}`, hotkey: "m" },
+            { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}`, hotkey: "r" },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
@@ -1405,10 +1430,10 @@ function Home() {
         {!isReview && (
           <ToggleGroup
             options={[
-              { value: "stage" as ViewMode, label: "Status" },
-              { value: "priority" as ViewMode, label: "Priority" },
-              { value: "stack" as ViewMode, label: "Stack" },
-              { value: "date" as ViewMode, label: "All" },
+              { value: "stage" as ViewMode, label: "Status", hotkey: "s" },
+              { value: "priority" as ViewMode, label: "Priority", hotkey: "p" },
+              { value: "stack" as ViewMode, label: "Stack", hotkey: "k" },
+              { value: "date" as ViewMode, label: "All", hotkey: "a" },
             ]}
             value={sort}
             onChange={(v) => setSort(v as SortMode)}
@@ -1417,7 +1442,7 @@ function Home() {
         {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
         </div>
         <div className="text-sm text-text-tertiary mt-1">
-          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin) : (() => {
+          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
