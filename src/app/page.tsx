@@ -600,7 +600,7 @@ function WorkItemTable({
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
 }) {
-  const colCount = 9;
+  const colCount = 8;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead className={theadClass}>
@@ -621,9 +621,6 @@ function WorkItemTable({
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
             <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<CursorIcon className="w-3.5 h-3.5 text-text-secondary" />} label="Cursor" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
-          </th>
-          <th className="text-left py-2 px-2 w-[180px] min-w-[180px] max-w-[180px]">
-            <span className="text-xs font-medium text-text-secondary">Blockers</span>
           </th>
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
@@ -667,27 +664,35 @@ function WorkItemTable({
                 })()}
               </td>
               <td className="py-1.5 px-2">
-                <div className="flex items-center">
-                  {stackMeta && stackMeta.depth > 0 && (
-                    <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
-                      {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
-                      {stackMeta.isLast ? "└─" : "├─"}{" "}
-                    </span>
-                  )}
-                  {(() => {
-                    const isClosed = isItemClosed(item);
-                    return (
-                      <a
-                        href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
-                      >
-                        {item.title}
-                      </a>
-                    );
-                  })()}
-                </div>
+                <BlockerTags
+                  itemId={item.id}
+                  tags={blockerData.tags[item.id] ?? []}
+                  allTags={blockerData.allTags}
+                  onAdd={onAddTag}
+                  onRemove={onRemoveTag}
+                >
+                  <>
+                    {stackMeta && stackMeta.depth > 0 && (
+                      <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
+                        {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
+                        {stackMeta.isLast ? "└─" : "├─"}{" "}
+                      </span>
+                    )}
+                    {(() => {
+                      const isClosed = isItemClosed(item);
+                      return (
+                        <a
+                          href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
+                        >
+                          {item.title}
+                        </a>
+                      );
+                    })()}
+                  </>
+                </BlockerTags>
               </td>
               <td className="py-1.5 px-0 text-center w-[24px]">
                 {item.linear && item.linear.priority > 0 && (
@@ -750,15 +755,6 @@ function WorkItemTable({
                 ) : (
                   <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
-              </td>
-              <td className="py-1.5 px-2 w-[180px] min-w-[180px] max-w-[180px]">
-                <BlockerTags
-                  itemId={item.id}
-                  tags={blockerData.tags[item.id] ?? []}
-                  allTags={blockerData.allTags}
-                  onAdd={onAddTag}
-                  onRemove={onRemoveTag}
-                />
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 <ChangesSummary
@@ -1386,12 +1382,14 @@ function BlockerTags({
   allTags,
   onAdd,
   onRemove,
+  children,
 }: {
   itemId: string;
   tags: string[];
   allTags: string[];
   onAdd: (itemId: string, tag: string) => void;
   onRemove: (itemId: string, tag: string) => void;
+  children: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState("");
@@ -1429,74 +1427,131 @@ function BlockerTags({
   }, []);
 
   return (
-    <div ref={containerRef} className="flex flex-wrap gap-1 items-center">
-      {tags.map(tag => {
-        const c = getTagColor(tag);
-        return (
-          <span
-            key={tag}
-            className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border} group/tag`}
-          >
-            {tag}
-            <button
-              onClick={() => onRemove(itemId, tag)}
-              className="opacity-0 group-hover/tag:opacity-100 ml-0.5 hover:text-text-primary transition-opacity leading-none"
-              aria-label={`Remove ${tag}`}
-            >
-              &times;
-            </button>
-          </span>
-        );
-      })}
-      {editing ? (
-        <div className="relative">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && trimmed) commitTag(trimmed);
-              if (e.key === "Escape") dismiss();
-            }}
-            className="text-[11px] bg-transparent border border-border rounded px-1 py-0.5 w-[80px] outline-none text-text-primary"
-            placeholder="tag…"
-          />
-          {(suggestions.length > 0 || canCreate) && (
-            <div className="absolute left-0 top-full mt-0.5 bg-surface border border-border rounded shadow-lg py-0.5 z-40 min-w-[100px] max-h-[120px] overflow-y-auto">
-              {canCreate && (
-                <button
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => commitTag(trimmed)}
-                  className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
-                >
-                  Create &ldquo;{trimmed}&rdquo;
-                </button>
-              )}
-              {suggestions.map(s => {
-                const sc = getTagColor(s);
-                return (
+    <div ref={containerRef}>
+      <div className="flex items-center gap-1.5">
+        {children}
+        {editing && tags.length === 0 ? (
+          <div className="relative flex-shrink-0">
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && trimmed) commitTag(trimmed);
+                if (e.key === "Escape") dismiss();
+              }}
+              className="text-[11px] bg-transparent border border-border rounded px-1 py-0.5 w-[80px] outline-none text-text-primary"
+              placeholder="tag…"
+            />
+            {(suggestions.length > 0 || canCreate) && (
+              <div className="absolute left-0 top-full mt-0.5 bg-surface border border-border rounded shadow-lg py-0.5 z-40 min-w-[100px] max-h-[120px] overflow-y-auto">
+                {canCreate && (
                   <button
-                    key={s}
                     onMouseDown={e => e.preventDefault()}
-                    onClick={() => commitTag(s)}
+                    onClick={() => commitTag(trimmed)}
                     className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
                   >
-                    <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${sc.bg} border ${sc.border}`} />
-                    {s}
+                    Create &ldquo;{trimmed}&rdquo;
                   </button>
-                );
-              })}
+                )}
+                {suggestions.map(s => {
+                  const sc = getTagColor(s);
+                  return (
+                    <button
+                      key={s}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => commitTag(s)}
+                      className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
+                    >
+                      <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${sc.bg} border ${sc.border}`} />
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : tags.length === 0 ? (
+          <button
+            onClick={() => setEditing(true)}
+            className="text-text-muted hover:text-text-secondary hover:bg-fill-muted text-[11px] border border-border rounded px-1.5 py-0.5 transition-colors flex-shrink-0"
+            title="Add blocker tag"
+          >
+            + blocker
+          </button>
+        ) : null}
+      </div>
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1 items-center">
+          {tags.map(tag => {
+            const c = getTagColor(tag);
+            return (
+              <span
+                key={tag}
+                className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border} group/tag`}
+              >
+                {tag}
+                <button
+                  onClick={() => onRemove(itemId, tag)}
+                  className="opacity-0 group-hover/tag:opacity-100 ml-0.5 hover:text-text-primary transition-opacity leading-none"
+                  aria-label={`Remove ${tag}`}
+                >
+                  &times;
+                </button>
+              </span>
+            );
+          })}
+          {editing ? (
+            <div className="relative flex-shrink-0">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && trimmed) commitTag(trimmed);
+                  if (e.key === "Escape") dismiss();
+                }}
+                className="text-[11px] bg-transparent border border-border rounded px-1 py-0.5 w-[80px] outline-none text-text-primary"
+                placeholder="tag…"
+              />
+              {(suggestions.length > 0 || canCreate) && (
+                <div className="absolute left-0 top-full mt-0.5 bg-surface border border-border rounded shadow-lg py-0.5 z-40 min-w-[100px] max-h-[120px] overflow-y-auto">
+                  {canCreate && (
+                    <button
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => commitTag(trimmed)}
+                      className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
+                    >
+                      Create &ldquo;{trimmed}&rdquo;
+                    </button>
+                  )}
+                  {suggestions.map(s => {
+                    const sc = getTagColor(s);
+                    return (
+                      <button
+                        key={s}
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => commitTag(s)}
+                        className="block w-full text-left text-[11px] px-2 py-1 text-text-secondary hover:bg-surface-hover"
+                      >
+                        <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${sc.bg} border ${sc.border}`} />
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+          ) : (
+            <button
+              onClick={() => setEditing(true)}
+              className="text-text-muted hover:text-text-secondary hover:bg-fill-muted text-[11px] border border-border rounded px-1 py-0.5 transition-colors flex-shrink-0"
+              title="Add blocker tag"
+            >
+              +
+            </button>
           )}
         </div>
-      ) : (
-        <button
-          onClick={() => setEditing(true)}
-          className="text-text-muted hover:text-text-secondary hover:bg-fill-muted text-xs border border-border rounded px-1.5 py-0.5 transition-colors"
-          title="Add blocker tag"
-        >
-          +
-        </button>
       )}
     </div>
   );
