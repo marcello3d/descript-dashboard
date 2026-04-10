@@ -1,4 +1,4 @@
-import type { LinearIssue, GitHubPR, CursorAgent, WorkItem } from "@/types";
+import type { LinearIssue, GitHubPR, CursorAgent, WorkItem, ReviewItem } from "@/types";
 
 const IDENTIFIER_RE = /[A-Z]+-\d+/gi;
 
@@ -9,10 +9,9 @@ export function buildWorkItems(
 ): WorkItem[] {
   const items = new Map<string, WorkItem>();
 
-  // Start with Linear issues
   for (const issue of issues) {
     items.set(issue.identifier.toLowerCase(), {
-      id: issue.identifier,
+      id: "",
       title: issue.title,
       linear: issue,
       prs: [],
@@ -63,8 +62,8 @@ export function buildWorkItems(
     }
 
     if (!matched) {
-      const id = `pr-${pr.id}`;
-      items.set(id, { id, title: pr.title, prs: [pr], agents: [] });
+      const key = `orphan-pr-${pr.id}`;
+      items.set(key, { id: "", title: pr.title, prs: [pr], agents: [] });
     }
   }
 
@@ -93,8 +92,8 @@ export function buildWorkItems(
       }
     }
     if (!matched) {
-      const id = `agent-${agent.id}`;
-      items.set(id, { id, title: agent.name || agent.id, prs: [], agents: [agent] });
+      const key = `orphan-agent-${agent.id}`;
+      items.set(key, { id: "", title: agent.name || agent.id, prs: [], agents: [agent] });
     }
   }
 
@@ -144,6 +143,29 @@ export function findMissingPrUrls(
     }
   }
   return [...missing];
+}
+
+/**
+ * Match review PRs to Linear issues and classify by request type.
+ */
+export function buildReviewItems(
+  prs: GitHubPR[],
+  issues: LinearIssue[],
+  viewerLogin: string
+): ReviewItem[] {
+  const idRe = /[A-Z]+-\d+/gi;
+  return prs.map(pr => {
+    let linear = issues.find(i => i.prUrls.includes(pr.url));
+    if (!linear) {
+      const prText = `${pr.title} ${pr.branch}`.toLowerCase();
+      linear = issues.find(i => prText.includes(i.identifier.toLowerCase()));
+    }
+    const requestType: "individual" | "team" =
+      viewerLogin && pr.requestedReviewers?.includes(viewerLogin)
+        ? "individual"
+        : "team";
+    return { id: "", pr, linear, requestType };
+  });
 }
 
 /**

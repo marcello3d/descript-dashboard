@@ -61,3 +61,10 @@ export interface WorkItem {
   prs: GitHubPR[];
   agents: CursorAgent[];
 }
+
+export interface ReviewItem {
+  id: string;
+  pr: GitHubPR;
+  linear?: LinearIssue;
+  requestType: "individual" | "team";
+}
