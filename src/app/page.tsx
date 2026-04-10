@@ -7,16 +7,6 @@ import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 
-function formatTimeAgo(ts: number): string {
-  const sec = Math.floor((Date.now() - ts) / 1000);
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  return `${hr}h ago`;
-}
-
 // GitHub PR status icons (Octicons)
 function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?: boolean } }) {
   if (!pr) return <SiGithub className="w-3.5 h-3.5 text-text-muted" />;
@@ -133,20 +123,20 @@ function ChecksIcon({ state }: { state: string | null }) {
   }
 }
 
-function ReviewBadge({ decision, draft, merged, checksState }: { decision: string | null; draft: boolean; merged: boolean; checksState: string | null }) {
-  let label: React.ReactNode;
-  if (merged) label = <span className="text-xs text-status-purple">merged</span>;
-  else if (draft) label = <span className="text-xs text-text-tertiary">draft</span>;
-  else switch (decision) {
-    case "APPROVED":
-      label = <span className="text-xs text-status-green">approved</span>; break;
-    case "CHANGES_REQUESTED":
-      label = <span className="text-xs text-status-red">changes</span>; break;
-    case "REVIEW_REQUIRED":
-      label = <span className="text-xs text-status-yellow">needs review</span>; break;
-    default:
-      label = <span className="text-xs text-text-tertiary">open</span>;
+function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; color: string } {
+  if (pr.merged) return { text: "merged", color: "text-status-purple" };
+  if (pr.draft) return { text: "draft", color: "text-text-tertiary" };
+  switch (pr.reviewDecision) {
+    case "APPROVED": return { text: "approved", color: "text-status-green" };
+    case "CHANGES_REQUESTED": return { text: "changes", color: "text-status-red" };
+    case "REVIEW_REQUIRED": return { text: "needs review", color: "text-status-yellow" };
+    default: return { text: "open", color: "text-text-tertiary" };
   }
+}
+
+function ReviewBadge({ decision, draft, merged, checksState }: { decision: string | null; draft: boolean; merged: boolean; checksState: string | null }) {
+  const { text, color } = getPrStatusInfo({ merged, draft, reviewDecision: decision });
+  const label = <span className={`text-xs ${color}`}>{text}</span>;
   return (
     <span className="inline-flex items-center gap-1">
       {label}
@@ -163,16 +153,8 @@ function UnifiedStatus({ item }: { item: WorkItem }) {
   // PR exists → show Linear icon + GitHub-derived status
   const pr = item.prs[0];
   if (pr) {
-    let label: React.ReactNode;
-    if (pr.merged) label = <span className="text-xs text-status-purple">PR merged</span>;
-    else if (pr.reviewDecision === "CHANGES_REQUESTED")
-      label = <span className="text-xs text-status-red">PR changes requested</span>;
-    else if (pr.reviewDecision === "APPROVED")
-      label = <span className="text-xs text-status-green">PR approved</span>;
-    else if (pr.draft) label = <span className="text-xs text-text-tertiary">PR draft</span>;
-    else if (pr.reviewDecision === "REVIEW_REQUIRED")
-      label = <span className="text-xs text-status-yellow">PR in review</span>;
-    else label = <span className="text-xs text-text-tertiary">PR open</span>;
+    const { text, color } = getPrStatusInfo(pr);
+    const label = <span className={`text-xs ${color}`}>PR {text}</span>;
     return <span className="inline-flex items-center gap-1 leading-none">{linearIcon}{label}</span>;
   }
 
@@ -197,6 +179,82 @@ function UnifiedStatus({ item }: { item: WorkItem }) {
   }
 
   return linearIcon;
+}
+
+function getPrNumber(url: string): string {
+  return url.split("/").pop() ?? "";
+}
+
+const theadClass = "sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]";
+const sectionHeaderClass = "sticky top-[84px] z-[5] bg-surface-alt";
+const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors";
+const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
+const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
+
+function ChangesSummary({ files, additions, deletions, url }: { files: number; additions: number; deletions: number; url?: string | null }) {
+  if (files === 0 && additions === 0 && deletions === 0) return null;
+  const inner = (
+    <span className="inline-flex items-center text-xs">
+      <span className="text-text-tertiary text-right w-[40px] flex-shrink-0">{files > 0 ? `${files} ${files === 1 ? "file" : "files"}` : ""}</span>
+      <span className="w-2 flex-shrink-0" />
+      {(additions > 0 || deletions > 0) && <DiffStats additions={additions} deletions={deletions} />}
+    </span>
+  );
+  if (url) {
+    return <a href={url} target="_blank" rel="noopener noreferrer" className={`${cellLink} inline-flex`}>{inner}</a>;
+  }
+  return inner;
+}
+
+function LinearIssueLink({ issue }: { issue: LinearIssue }) {
+  return (
+    <a href={issue.url} target="_blank" rel="noopener noreferrer" className={cellLinkFlex} title={issue.status}>
+      <StatusIcon status={issue.status} />
+      <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
+    </a>
+  );
+}
+
+function PrCellLink({ pr }: { pr: GitHubPR }) {
+  return (
+    <a
+      href={pr.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cellLinkFlex}
+      title={getPrStatusInfo(pr).text}
+    >
+      <PrStatusIcon pr={pr} />
+      <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
+      <ReviewIcon decision={pr.reviewDecision} />
+    </a>
+  );
+}
+
+function SectionHeader({ label, count, colSpan }: { label: string; count: number; colSpan: number }) {
+  return (
+    <tr className={sectionHeaderClass}>
+      <td colSpan={colSpan} className="pt-4 pb-1 px-2">
+        <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({count})</span></span>
+      </td>
+    </tr>
+  );
+}
+
+function EmptyServiceCell({ children }: { children: React.ReactNode }) {
+  return <div className="flex px-2">{children}</div>;
+}
+
+function FavoriteButton({ id, isFavorite, onToggle }: { id: string; isFavorite: boolean; onToggle: (id: string) => void }) {
+  return (
+    <button
+      onClick={() => onToggle(id)}
+      className={`text-sm leading-none ${isFavorite ? "text-yellow-400" : "text-text-muted hover:text-yellow-300"} transition-colors`}
+      title={isFavorite ? "Unfavorite" : "Favorite"}
+    >
+      {isFavorite ? "★" : "☆"}
+    </button>
+  );
 }
 
 function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
@@ -274,6 +332,15 @@ function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] 
   });
 }
 
+function formatReviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): string {
+  const s = reviewSummary(prs, issues, viewerLogin);
+  const parts: string[] = [];
+  if (s.personal > 0) parts.push(`${s.personal} personal`);
+  if (s.team > 0) parts.push(`${s.team} team`);
+  if (s.draft > 0) parts.push(`${s.draft} draft`);
+  return parts.join(" · ");
+}
+
 function reviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): { personal: number; team: number; draft: number } {
   const built = buildReviewItems(prs, issues);
   let personal = 0, team = 0, draft = 0;
@@ -315,7 +382,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
   return (
     <div className="mb-4">
       <table className="w-full">
-        <thead className="sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]">
+        <thead className={theadClass}>
           <tr className="border-b border-border">
             <th className="w-[24px] px-0"></th>
             <th className="text-right py-2 px-2 w-[70px]">
@@ -338,23 +405,11 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
         </thead>
         {groups.map(({ label, items }) => (
         <tbody key={label}>
-          {groups.length > 1 && (
-            <tr className="sticky top-[84px] z-[5] bg-surface-alt">
-              <td colSpan={colCount} className="pt-4 pb-1 px-2">
-                <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({items.length})</span></span>
-              </td>
-            </tr>
-          )}
+          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} />}
           {items.map(item => (
-            <tr key={item.key} className="border-b border-border-muted hover:bg-surface-hover transition-colors">
+            <tr key={item.key} className={tableRowClass}>
               <td className="py-1.5 px-0 text-center w-[24px]">
-                <button
-                  onClick={() => onToggleFavorite(item.key)}
-                  className={`text-sm leading-none ${favorites.has(item.key) ? "text-yellow-400" : "text-text-muted hover:text-yellow-300"} transition-colors`}
-                  title={favorites.has(item.key) ? "Unfavorite" : "Favorite"}
-                >
-                  {favorites.has(item.key) ? "★" : "☆"}
-                </button>
+                <FavoriteButton id={item.key} isFavorite={favorites.has(item.key)} onToggle={onToggleFavorite} />
               </td>
               <td className="py-1.5 px-2 text-right w-[70px]">
                 {(() => {
@@ -365,7 +420,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
               <td className="py-1.5 px-2">
                 <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
                   <PrStatusIcon pr={item.pr} />
-                  <span className="text-xs text-text-tertiary font-mono">#{item.pr?.url.split("/").pop()}</span>
+                  <span className="text-xs text-text-tertiary font-mono">#{item.pr ? getPrNumber(item.pr.url) : ""}</span>
                   {item.title}
                 </a>
               </td>
@@ -383,24 +438,13 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite }: 
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 {item.linear ? (
-                  <a href={item.linear.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors">
-                    <StatusIcon status={item.linear.status} />
-                    <span className="text-xs text-text-tertiary font-mono">{item.linear.identifier}</span>
-                  </a>
+                  <LinearIssueLink issue={item.linear} />
                 ) : (
-                  <div className="flex px-2">
-                    <SiLinear className="w-3.5 h-3.5 text-text-muted" />
-                  </div>
+                  <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.pr && (item.pr.changedFiles > 0 || item.pr.additions > 0 || item.pr.deletions > 0) && (
-                  <a href={`${item.pr.url}/files`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-xs py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors">
-                    <span className="text-text-tertiary text-right w-[40px] flex-shrink-0">{item.pr.changedFiles > 0 ? `${item.pr.changedFiles} ${item.pr.changedFiles === 1 ? "file" : "files"}` : ""}</span>
-                    <span className="w-2 flex-shrink-0" />
-                    {(item.pr.additions > 0 || item.pr.deletions > 0) && <DiffStats additions={item.pr.additions} deletions={item.pr.deletions} />}
-                  </a>
-                )}
+                {item.pr && <ChangesSummary files={item.pr.changedFiles} additions={item.pr.additions} deletions={item.pr.deletions} url={`${item.pr.url}/files`} />}
               </td>
             </tr>
           ))}
@@ -466,7 +510,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
     return (
       <button
         onClick={handleCreate}
-        className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+        className={cellLinkFlex}
         title={error}
       >
         <CursorIcon className="w-3.5 h-3.5 text-status-red" />
@@ -478,7 +522,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
   return (
     <button
       onClick={handleCreate}
-      className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors group"
+      className={`${cellLinkFlex} group`}
       title="Create Cursor agent for this PR"
     >
       <CursorIcon className="w-3.5 h-3.5 text-text-muted group-hover:text-text-secondary transition-colors" />
@@ -505,7 +549,7 @@ function WorkItemTable({
   const colCount = 8;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
-      <thead className="sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]">
+      <thead className={theadClass}>
         <tr className="border-b border-border">
           <th className="w-[24px] px-0"></th>
           <th className="text-right py-2 px-2 w-[70px]">
@@ -531,28 +575,16 @@ function WorkItemTable({
       </thead>
       {groups.map(({ label, items }) => (
       <tbody key={label}>
-        {groups.length > 1 && (
-          <tr className="sticky top-[84px] z-[5] bg-surface-alt">
-            <td colSpan={colCount} className="pt-4 pb-1 px-2">
-              <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wide">{label} <span className="font-normal">({items.length})</span></span>
-            </td>
-          </tr>
-        )}
+        {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} />}
         {items.map((item) => {
           const lastUpdated = getLastUpdated(item);
           return (
             <tr
               key={item.id}
-              className="border-b border-border-muted hover:bg-surface-hover transition-colors"
+              className={tableRowClass}
             >
               <td className="py-1.5 px-0 text-center w-[24px]">
-                <button
-                  onClick={() => onToggleFavorite(item.id)}
-                  className={`text-sm leading-none ${favorites.has(item.id) ? "text-yellow-400" : "text-text-muted hover:text-yellow-300"} transition-colors`}
-                  title={favorites.has(item.id) ? "Unfavorite" : "Favorite"}
-                >
-                  {favorites.has(item.id) ? "★" : "☆"}
-                </button>
+                <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
               </td>
               <td className="py-1.5 px-2 text-right">
                 {lastUpdated && (() => {
@@ -578,18 +610,7 @@ function WorkItemTable({
               </td>
               <td className="py-1.5 px-2">
                 {(() => {
-                  const hasActiveAgent = item.agents.some(a => a.status === "running" || a.status === "in_progress");
-                  const isVerify = item.linear?.status.toLowerCase() === "verify";
-                  const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
-                  const isClosed = !hasActiveAgent && (
-                    (item.prs.some(pr => pr.merged) && !isVerify) ||
-                    (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) ||
-                    item.linear?.status.toLowerCase() === "canceled" ||
-                    item.linear?.status.toLowerCase() === "cancelled" ||
-                    item.linear?.status.toLowerCase() === "done" ||
-                    item.linear?.status.toLowerCase() === "completed" ||
-                    cursorOnly
-                  );
+                  const isClosed = isItemClosed(item);
                   return (
                     <a
                       href={item.linear?.url ?? item.prs[0]?.url ?? item.agents[0]?.url ?? "#"}
@@ -609,51 +630,27 @@ function WorkItemTable({
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 {item.linear ? (
-                  <a
-                    href={item.linear.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
-                    title={item.linear.status}
-                  >
-                    <StatusIcon status={item.linear.status} />
-                    <span className="text-xs text-text-tertiary font-mono">
-                      {item.linear.identifier}
-                    </span>
-                  </a>
+                  <LinearIssueLink issue={item.linear} />
                 ) : item.prs[0] ? (
                   <a
                     href={`https://linear.app/descript/new?title=${encodeURIComponent(item.prs[0].title)}&description=${encodeURIComponent(item.prs[0].url)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors text-text-muted hover:text-text-secondary"
+                    className={`flex items-center gap-1 ${cellLink} text-text-muted hover:text-text-secondary`}
                     title="Create Linear issue from PR"
                   >
                     <SiLinear className="w-3.5 h-3.5" />
                     <span className="text-xs">+</span>
                   </a>
                 ) : (
-                  <div className="flex px-2">
-                    <SiLinear className="w-3.5 h-3.5 text-text-muted" />
-                  </div>
+                  <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 {item.prs.length > 0 ? (
                   <div className="flex flex-col gap-0.5">
                     {item.prs.map(pr => (
-                      <a
-                        key={pr.id}
-                        href={pr.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
-                        title={pr.merged ? "Merged" : pr.closed ? "Closed" : pr.draft ? "Draft" : pr.reviewDecision === "APPROVED" ? "Approved" : pr.reviewDecision === "CHANGES_REQUESTED" ? "Changes requested" : pr.reviewDecision === "REVIEW_REQUIRED" ? "Review required" : "Open"}
-                      >
-                        <PrStatusIcon pr={pr} />
-                        <span className="text-xs text-text-tertiary font-mono">#{pr.url.split("/").pop()}</span>
-                        <ReviewIcon decision={pr.reviewDecision} />
-                      </a>
+                      <PrCellLink key={pr.id} pr={pr} />
                     ))}
                   </div>
                 ) : item.linear?.prUrls?.[0] ? (
@@ -661,15 +658,13 @@ function WorkItemTable({
                     href={item.linear.prUrls[0]}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+                    className={cellLinkFlex}
                   >
                     <PrStatusIcon />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.linear.prUrls[0].split("/").pop()}</span>
+                    <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(item.linear.prUrls[0])}</span>
                   </a>
                 ) : (
-                  <div className="flex px-2">
-                    <PrStatusIcon />
-                  </div>
+                  <EmptyServiceCell><PrStatusIcon /></EmptyServiceCell>
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
@@ -678,7 +673,7 @@ function WorkItemTable({
                     href={item.agents[0].url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors"
+                    className={cellLinkFlex}
                   >
                     <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
                     <span className="text-xs text-text-tertiary">Agent</span>
@@ -687,33 +682,17 @@ function WorkItemTable({
                 ) : item.prs.length > 0 ? (
                   <CreateAgentButton item={item} onCreated={onAgentCreated} />
                 ) : (
-                  <div className="flex px-2">
-                    <CursorIcon className="w-3.5 h-3.5 text-text-muted" />
-                  </div>
+                  <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
               </td>
-              {(() => {
-                const files = item.prs[0]?.changedFiles ?? item.agents[0]?.filesChanged ?? 0;
-                const add = item.prs[0]?.additions ?? item.agents[0]?.linesAdded ?? 0;
-                const del = item.prs[0]?.deletions ?? item.agents[0]?.linesRemoved ?? 0;
-                const prUrl = item.prs[0]?.url ?? item.linear?.prUrls?.[0] ?? null;
-                const changesUrl = prUrl ? `${prUrl}/files` : null;
-                const hasContent = files > 0 || add > 0 || del > 0;
-                const inner = hasContent ? (
-                  <span className="inline-flex items-center text-xs">
-                    <span className="text-text-tertiary text-right w-[40px] flex-shrink-0">{files > 0 ? `${files} ${files === 1 ? "file" : "files"}` : ""}</span>
-                    <span className="w-2 flex-shrink-0" />
-                    {(add > 0 || del > 0) ? <DiffStats additions={add} deletions={del} /> : null}
-                  </span>
-                ) : null;
-                return (
-                  <td className="py-1.5 px-1 whitespace-nowrap">
-                    {inner && changesUrl ? (
-                      <a href={changesUrl} target="_blank" rel="noopener noreferrer" className="py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors inline-flex">{inner}</a>
-                    ) : inner}
-                  </td>
-                );
-              })()}
+              <td className="py-1.5 px-1 whitespace-nowrap">
+                <ChangesSummary
+                  files={item.prs[0]?.changedFiles ?? item.agents[0]?.filesChanged ?? 0}
+                  additions={item.prs[0]?.additions ?? item.agents[0]?.linesAdded ?? 0}
+                  deletions={item.prs[0]?.deletions ?? item.agents[0]?.linesRemoved ?? 0}
+                  url={(() => { const u = item.prs[0]?.url ?? item.linear?.prUrls?.[0]; return u ? `${u}/files` : null; })()}
+                />
+              </td>
             </tr>
           );
         })}
@@ -749,6 +728,19 @@ function ToggleGroup<T extends string>({
       ))}
     </div>
   );
+}
+
+function isItemClosed(item: WorkItem): boolean {
+  const hasActiveAgent = item.agents.some(a => a.status === "running" || a.status === "in_progress");
+  if (hasActiveAgent) return false;
+  const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
+  if (cursorOnly) return true;
+  const status = item.linear?.status.toLowerCase();
+  if (status === "canceled" || status === "cancelled" || status === "done" || status === "completed") return true;
+  const isVerify = status === "verify";
+  if (item.prs.some(pr => pr.merged) && !isVerify) return true;
+  if (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) return true;
+  return false;
 }
 
 type ActionGroup = "ready" | "verify" | "review" | "changes" | "draft" | "other";
@@ -1195,17 +1187,7 @@ function Home() {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
     for (const item of allItems) {
-      const hasActiveAgent = item.agents.some(a => a.status === "running" || a.status === "in_progress");
-      const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
-      const isVerify = item.linear?.status.toLowerCase() === "verify";
-      const isClosed = !hasActiveAgent && (
-        (item.prs.some(pr => pr.merged) && !isVerify) ||
-        (item.prs.length > 0 && item.prs.every(pr => pr.closed) && !item.linear) ||
-        item.linear?.status.toLowerCase() === "canceled" ||
-        item.linear?.status.toLowerCase() === "cancelled" ||
-        cursorOnly
-      );
-      if (isClosed) {
+      if (isItemClosed(item)) {
         closed.push(item);
       } else {
         open.push(item);
@@ -1228,12 +1210,7 @@ function Home() {
     const section = isReview ? "Requested reviews" : "My tasks";
     let summary = "";
     if (isReview) {
-      const s = reviewSummary(reviewPrs, reviewIssues, viewerLogin);
-      const parts: string[] = [];
-      if (s.personal > 0) parts.push(`${s.personal} personal`);
-      if (s.team > 0) parts.push(`${s.team} team`);
-      if (s.draft > 0) parts.push(`${s.draft} draft`);
-      summary = parts.join(" · ");
+      summary = formatReviewSummary(reviewPrs, reviewIssues, viewerLogin);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
       summary = stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -1259,14 +1236,7 @@ function Home() {
           onChange={(v) => setTab(v as Tab)}
         />
         <span className="text-sm text-text-tertiary">
-          {isReview ? (() => {
-            const s = reviewSummary(reviewPrs, reviewIssues, viewerLogin);
-            const parts: string[] = [];
-            if (s.personal > 0) parts.push(`${s.personal} personal`);
-            if (s.team > 0) parts.push(`${s.team} team`);
-            if (s.draft > 0) parts.push(`${s.draft} draft`);
-            return parts.join(" · ");
-          })() : (() => {
+          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -1293,7 +1263,7 @@ function Home() {
           </svg>
         </button>
         <span className="text-[11px] text-text-tertiary tabular-nums">
-          {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? formatTimeAgo(lastUpdated) : ""}
+          {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
         </span>
         {rateLimitInfos.length > 0 && (
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
