@@ -1239,6 +1239,61 @@ function useWorkItems(intervalMs = 300000) {
   return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh };
 }
 
+function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const allChecked = value.size === 0 || value.size === 2;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const services = [
+    { key: "linear", label: "Linear", icon: <SiLinear className="w-3.5 h-3.5 text-[#5E6AD2]" /> },
+    { key: "github", label: "GitHub", icon: <SiGithub className="w-3.5 h-3.5" /> },
+  ];
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`p-1 rounded transition-colors ${allChecked ? "text-text-tertiary hover:text-text-secondary" : "text-text-primary"}`}
+        title="Filter by service"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[150px]">
+          {services.map(svc => (
+            <button
+              key={svc.key}
+              onClick={() => onToggle(svc.key)}
+              className="flex items-center gap-2 w-full text-left text-xs px-3 py-1.5 transition-colors text-text-secondary hover:bg-surface-hover"
+            >
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${(allChecked || value.has(svc.key)) ? "bg-blue-500 border-blue-500 text-white" : "border-border"}`}>
+                {(allChecked || value.has(svc.key)) && (
+                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </span>
+              {svc.icon}
+              <span>{svc.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -1281,6 +1336,8 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
   );
 }
 
+const ALL_SERVICES = new Set(["linear", "github"]);
+
 function Home() {
   const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
 
@@ -1299,12 +1356,14 @@ function Home() {
   const [tab, setTabState] = useState<Tab>("tasks");
   const [sort, setSortState] = useState<SortMode>("stage");
   const [repoFilter, setRepoFilterState] = useState("descript");
+  const [serviceFilter, setServiceFilterState] = useState<Set<string>>(new Set<string>());
 
   // Sync from URL on mount
   useEffect(() => {
     const t = searchParams.get("tab") as Tab;
     const s = searchParams.get("sort") as SortMode;
     const r = searchParams.get("repo");
+    const svc = searchParams.get("svc");
     // Migrate legacy "view" param
     const legacyView = searchParams.get("view") as string;
     if (legacyView) {
@@ -1314,10 +1373,11 @@ function Home() {
     if (t) setTabState(t);
     if (s && (s === "stage" || s === "priority" || s === "stack" || s === "date")) setSortState(s);
     if (r && r !== repoFilter) setRepoFilterState(r);
+    if (svc) setServiceFilterState(new Set(svc.split(",").filter(v => ALL_SERVICES.has(v))));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setParam = useCallback((key: string, value: string, defaultValue: string) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.delete("view"); // clean up legacy param
     if (value === defaultValue) {
       params.delete(key);
@@ -1326,7 +1386,7 @@ function Home() {
     }
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : "/");
-  }, [searchParams]);
+  }, []);
 
   const setTab = useCallback((t: Tab) => { setTabState(t); setParam("tab", t, "tasks"); }, [setParam]);
   const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
@@ -1334,6 +1394,18 @@ function Home() {
   const isOpen = sort === "stage" || sort === "priority";
   const isReview = tab === "review";
   const setRepoFilter = useCallback((v: string) => { setRepoFilterState(v); setParam("repo", v, "descript"); }, [setParam]);
+  const toggleServiceFilter = useCallback((svc: string) => {
+    setServiceFilterState(prev => {
+      const expanded = prev.size === 0 ? new Set(ALL_SERVICES) : new Set(prev);
+      if (expanded.has(svc)) expanded.delete(svc); else expanded.add(svc);
+      if (expanded.size === 2) return new Set<string>();
+      return expanded;
+    });
+  }, []);
+  useEffect(() => {
+    const val = serviceFilter.size === 0 ? "" : [...serviceFilter].sort().join(",");
+    setParam("svc", val, "");
+  }, [serviceFilter, setParam]);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -1375,12 +1447,22 @@ function Home() {
   }, [allUnfilteredItems]);
 
   const allItems = useMemo(() => {
-    if (repoFilter === "all") return allUnfilteredItems;
-    return allUnfilteredItems.filter(item => {
-      const repo = item.prs[0]?.repo ?? item.agents[0]?.repo ?? "";
-      return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
-    });
-  }, [allUnfilteredItems, repoFilter]);
+    let items = allUnfilteredItems;
+    if (repoFilter !== "all") {
+      items = items.filter(item => {
+        const repo = item.prs[0]?.repo ?? item.agents[0]?.repo ?? "";
+        return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
+      });
+    }
+    if (serviceFilter.size === 1) {
+      items = items.filter(item => {
+        if (serviceFilter.has("linear") && item.linear) return true;
+        if (serviceFilter.has("github") && item.prs.length > 0) return true;
+        return false;
+      });
+    }
+    return items;
+  }, [allUnfilteredItems, repoFilter, serviceFilter]);
 
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
@@ -1465,6 +1547,7 @@ function Home() {
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
         <div className="flex-1" />
+        {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
             options={[
