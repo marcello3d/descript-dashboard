@@ -109,6 +109,48 @@ export async function fetchRawSubscribedIssues(
   return Promise.all(issues.nodes.map(resolveIssue));
 }
 
+export interface WorkflowStateInfo {
+  id: string;
+  name: string;
+  color: string;
+  type: string;
+  position: number;
+}
+
+export async function fetchWorkflowStatesForIssue(
+  apiKey: string,
+  issueId: string
+): Promise<WorkflowStateInfo[]> {
+  const client = new LinearClient({ apiKey });
+  const issue = await client.issue(issueId);
+  const team = await issue.team;
+  if (!team) throw new Error("Issue has no team");
+  const states = await team.states();
+  return states.nodes
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      color: s.color,
+      type: s.type,
+      position: s.position,
+    }))
+    .sort((a, b) => a.position - b.position);
+}
+
+export async function updateIssueStatus(
+  apiKey: string,
+  issueId: string,
+  stateId: string
+): Promise<{ success: boolean; statusName: string }> {
+  const client = new LinearClient({ apiKey });
+  const payload = await client.updateIssue(issueId, { stateId });
+  if (!payload.success) throw new Error("Failed to update issue");
+  const updated = await payload.issue;
+  if (!updated) throw new Error("Issue not found after update");
+  const state = await updated.state;
+  return { success: true, statusName: state?.name ?? "Unknown" };
+}
+
 export async function fetchRawAssignedIssues(
   apiKey: string
 ): Promise<RawLinearResult> {

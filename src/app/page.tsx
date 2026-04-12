@@ -6,6 +6,7 @@ import { SiLinear, SiGithub } from "react-icons/si";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
+import LinearStatusDropdown from "@/components/LinearStatusDropdown";
 
 const CLOSED_PR_ICON_PATH = "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
 
@@ -593,6 +594,7 @@ function WorkItemTable({
   blockerData,
   onAddTag,
   onRemoveTag,
+  onStatusChanged,
 }: {
   groups: { label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
   errors: string[];
@@ -605,6 +607,7 @@ function WorkItemTable({
   blockerData: BlockerData;
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
+  onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
 }) {
   const colCount = 8;
   return (
@@ -707,7 +710,10 @@ function WorkItemTable({
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 {item.linear ? (
-                  <LinearIssueLink issue={item.linear} />
+                  <LinearStatusDropdown
+                    issue={item.linear}
+                    onStatusChanged={(newStatus) => onStatusChanged(item.linear!.identifier, newStatus)}
+                  />
                 ) : item.prs[0] ? (
                   <a
                     href={`https://linear.app/descript/new?title=${encodeURIComponent(item.prs[0].title)}&description=${encodeURIComponent(item.prs[0].url)}`}
@@ -1256,7 +1262,15 @@ function useWorkItems(intervalMs = 300000) {
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
 
-  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh };
+  const updateItemStatus = useCallback((issueIdentifier: string, newStatus: string) => {
+    setItems(prev => prev.map(item =>
+      item.linear?.identifier === issueIdentifier
+        ? { ...item, linear: { ...item.linear!, status: newStatus } }
+        : item
+    ));
+  }, []);
+
+  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus };
 }
 
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
@@ -1565,7 +1579,7 @@ function BlockerTags({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll } = useWorkItems();
+  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus } = useWorkItems();
 
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
@@ -1884,6 +1898,7 @@ function Home() {
             blockerData={blockerData}
             onAddTag={addTag}
             onRemoveTag={removeTag}
+            onStatusChanged={updateItemStatus}
           />
           {displayItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">
