@@ -305,6 +305,27 @@ function FavoriteButton({ id, isFavorite, onToggle }: { id: string; isFavorite: 
   );
 }
 
+function ArchiveButton({ id, isArchived, onToggle }: { id: string; isArchived: boolean; onToggle: (id: string) => void }) {
+  return (
+    <button
+      onClick={() => onToggle(id)}
+      className={`${iconButtonClass} ${isArchived ? "text-text-tertiary" : "opacity-0 group-hover:opacity-100"}`}
+      title={isArchived ? "Unarchive" : "Archive"}
+      aria-label={isArchived ? "Unarchive item" : "Archive item"}
+    >
+      {isArchived ? (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 15l3-3m0 0l3 3m-3-3v12M3 7.5V6a2 2 0 012-2h14a2 2 0 012 2v1.5M3 7.5h18M3 7.5l1.5 12A2 2 0 006.48 21.5h11.04a2 2 0 001.98-1.5L21 7.5" />
+        </svg>
+      ) : (
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-1.5 12.5a2 2 0 01-2 1.5H7.5a2 2 0 01-2-1.5L4 7m16 0H4m16 0l-1-3H5L4 7m5 4v6m6-6v6" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
   return (
     <span className="text-[11px] font-mono">
@@ -595,6 +616,8 @@ function WorkItemTable({
   onAddTag,
   onRemoveTag,
   onStatusChanged,
+  archived,
+  onToggleArchive,
 }: {
   groups: { label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
   errors: string[];
@@ -608,8 +631,10 @@ function WorkItemTable({
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
   onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
+  archived: Set<string>;
+  onToggleArchive: (id: string) => void;
 }) {
-  const colCount = 8;
+  const colCount = 9;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead className={theadClass}>
@@ -634,6 +659,7 @@ function WorkItemTable({
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
           </th>
+          <th className="w-[28px] px-0"></th>
         </tr>
       </thead>
       {groups.map(({ label, items, stackMetaMap }) => (
@@ -775,6 +801,9 @@ function WorkItemTable({
                   deletions={item.prs[0]?.deletions ?? item.agents[0]?.linesRemoved ?? 0}
                   url={(() => { const u = item.prs[0]?.url ?? item.linear?.prUrls?.[0]; return u ? `${u}/files` : null; })()}
                 />
+              </td>
+              <td className="py-1.5 px-0 text-center w-[28px]">
+                <ArchiveButton id={item.id} isArchived={archived.has(item.id)} onToggle={onToggleArchive} />
               </td>
             </tr>
           );
@@ -1707,6 +1736,23 @@ function Home() {
     });
   }, []);
 
+  const [archived, setArchived] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const saved = localStorage.getItem("dashboard:archived");
+      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  const toggleArchive = useCallback((id: string) => {
+    setArchived(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      localStorage.setItem("dashboard:archived", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+  const [showArchived, setShowArchived] = useState(false);
+
   const repos = useMemo(() => {
     const set = new Set<string>();
     for (const item of allUnfilteredItems) {
@@ -1762,10 +1808,17 @@ function Home() {
     return items;
   }, [allUnfilteredItems, repoFilter, serviceFilter]);
 
+  const archivedCount = useMemo(() => allItems.filter(i => archived.has(i.id)).length, [allItems, archived]);
+
+  const visibleItems = useMemo(() => {
+    if (showArchived) return allItems;
+    return allItems.filter(i => !archived.has(i.id));
+  }, [allItems, archived, showArchived]);
+
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
-    for (const item of allItems) {
+    for (const item of visibleItems) {
       if (isItemClosed(item)) {
         closed.push(item);
       } else {
@@ -1773,16 +1826,16 @@ function Home() {
       }
     }
     return { open, closed };
-  }, [allItems]);
+  }, [visibleItems]);
 
   const displayGroups = useMemo(() => {
-    const items = view === "date" ? allItems : open;
+    const items = view === "date" ? visibleItems : open;
     const sorted = sortByDate(items);
     if (view === "stage") return groupByAction(sorted, favorites);
     if (view === "priority") return groupByPriority(sorted, favorites);
     if (view === "stack") return groupByStack(sorted, favorites);
     return [{ group: "other" as ActionGroup, label: "", items: sorted }];
-  }, [view, open, allItems, favorites]);
+  }, [view, open, visibleItems, favorites]);
 
   const displayItems = displayGroups.flatMap(g => g.items);
 
@@ -1866,6 +1919,17 @@ function Home() {
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
+          {!isReview && archivedCount > 0 && (
+            <>
+              {open.length > 0 && <span> · </span>}
+              <button
+                onClick={() => setShowArchived(v => !v)}
+                className="text-text-muted hover:text-text-secondary transition-colors"
+              >
+                {showArchived ? `hide ${archivedCount} archived` : `${archivedCount} archived`}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -1899,6 +1963,8 @@ function Home() {
             onAddTag={addTag}
             onRemoveTag={removeTag}
             onStatusChanged={updateItemStatus}
+            archived={archived}
+            onToggleArchive={toggleArchive}
           />
           {displayItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">
