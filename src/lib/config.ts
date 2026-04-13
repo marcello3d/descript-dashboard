@@ -10,7 +10,8 @@ export interface AppConfig {
 const CONFIG_KEYS: (keyof AppConfig)[] = ["GITHUB_TOKEN", "LINEAR_API_KEY", "CURSOR_API_KEY"];
 
 function getConfigPath(): string {
-  return path.join(process.cwd(), ".config.json");
+  const configDir = process.env.DESCRIPT_DASHBOARD_CONFIG_PATH || process.cwd();
+  return path.join(configDir, ".config.json");
 }
 
 export function getConfig(): AppConfig {
@@ -41,7 +42,9 @@ export function setConfig(updates: Partial<AppConfig>): AppConfig {
       }
     }
   }
-  fs.writeFileSync(getConfigPath(), JSON.stringify(current, null, 2) + "\n");
+  const configPath = getConfigPath();
+  fs.writeFileSync(configPath, JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+  fs.chmodSync(configPath, 0o600);
   return current;
 }
 

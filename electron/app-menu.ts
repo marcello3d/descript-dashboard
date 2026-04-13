@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu } from 'electron'
+import { DEV_PORT } from './constants'
 
 function sendKey(key: string): void {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
@@ -21,7 +22,7 @@ export function buildAppMenu(isDev: boolean): Menu {
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-            if (win) win.loadURL('http://localhost:4080/settings')
+            if (win) win.loadURL(`http://localhost:${DEV_PORT}/settings`)
           },
         },
         { type: 'separator' },

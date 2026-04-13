@@ -1,4 +1,5 @@
 import { getConfig, setConfig, maskKey, type AppConfig } from "@/lib/config";
+import { invalidateEnvCache } from "@/lib/env";
 
 export async function GET() {
   const config = getConfig();
@@ -29,12 +30,17 @@ export async function POST(request: Request) {
     }
   }
 
-  const config = setConfig(updates);
-  return Response.json({
-    keys: {
-      GITHUB_TOKEN: { set: !!config.GITHUB_TOKEN, masked: maskKey(config.GITHUB_TOKEN) },
-      LINEAR_API_KEY: { set: !!config.LINEAR_API_KEY, masked: maskKey(config.LINEAR_API_KEY) },
-      CURSOR_API_KEY: { set: !!config.CURSOR_API_KEY, masked: maskKey(config.CURSOR_API_KEY) },
-    },
-  });
+  try {
+    const config = setConfig(updates);
+    invalidateEnvCache();
+    return Response.json({
+      keys: {
+        GITHUB_TOKEN: { set: !!config.GITHUB_TOKEN, masked: maskKey(config.GITHUB_TOKEN) },
+        LINEAR_API_KEY: { set: !!config.LINEAR_API_KEY, masked: maskKey(config.LINEAR_API_KEY) },
+        CURSOR_API_KEY: { set: !!config.CURSOR_API_KEY, masked: maskKey(config.CURSOR_API_KEY) },
+      },
+    });
+  } catch {
+    return Response.json({ error: "Failed to update settings" }, { status: 500 });
+  }
 }

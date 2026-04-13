@@ -4,6 +4,11 @@ let cached: AppConfig | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 10_000; // re-read config file at most every 10s
 
+export function invalidateEnvCache(): void {
+  cached = null;
+  cacheTime = 0;
+}
+
 export function getEnv(key: keyof AppConfig): string | undefined {
   // process.env takes priority
   const envVal = process.env[key];

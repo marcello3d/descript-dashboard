@@ -3,7 +3,7 @@ import { join } from 'path'
 import http from 'http'
 import zlib from 'zlib'
 
-const DEV_PORT = 4080
+import { DEV_PORT } from './constants'
 
 let tray: Tray | null = null
 let pollInterval: ReturnType<typeof setInterval> | null = null

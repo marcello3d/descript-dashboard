@@ -3,8 +3,8 @@ import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 import { buildAppMenu } from './app-menu'
 import { createTray, destroyTray, refreshTrayData } from './tray'
+import { DEV_PORT } from './constants'
 
-const DEV_PORT = 4080
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
@@ -65,7 +65,10 @@ function startNext(): Promise<void> {
       cwd: projectRoot,
       stdio: 'pipe',
       shell: isDev,
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        DESCRIPT_DASHBOARD_CONFIG_PATH: app.getPath('userData'),
+      },
     })
 
     let resolved = false
