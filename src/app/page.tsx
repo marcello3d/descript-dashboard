@@ -1840,6 +1840,17 @@ function Home() {
           </svg>
         </button>
         <div className="flex-1" />
+        <a
+          href="/settings"
+          className={iconButtonClass}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </a>
         {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
@@ -1865,9 +1876,16 @@ function Home() {
       </header>
 
       {serviceErrors.length > 0 && (
-        <div className="mb-3 space-y-1">
+        <div className="mb-3 px-3 py-2 rounded-lg border border-status-red/20 bg-status-red/5">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-status-red flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm font-medium text-status-red">Connection errors</span>
+            <a href="/settings" className="ml-auto text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+          </div>
           {serviceErrors.map((err, i) => (
-            <p key={i} className="text-xs text-status-red">{err}</p>
+            <p key={i} className="text-xs text-status-red/80 ml-6">{err}</p>
           ))}
         </div>
       )}
@@ -1876,7 +1894,12 @@ function Home() {
         <>
           <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
           {filteredReviewItems.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
+            <div className="text-center py-16 space-y-2">
+              <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
+              {serviceErrors.length > 0 && (
+                <a href="/settings" className="inline-block text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+              )}
+            </div>
           )}
         </>
       ) : (
@@ -1896,9 +1919,20 @@ function Home() {
             onStatusChanged={updateItemStatus}
           />
           {displayItems.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">
-              No active items. Check your API keys in .env.local
-            </p>
+            <div className="text-center py-16 space-y-3">
+              <svg className="w-10 h-10 mx-auto text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <p className="text-sm text-text-secondary font-medium">No active items</p>
+              <p className="text-sm text-text-tertiary">Add your API keys to get started</p>
+              <a
+                href="/settings"
+                className="inline-block mt-2 px-4 py-1.5 text-sm font-medium rounded-md bg-text-primary text-background hover:opacity-90 transition-opacity"
+              >
+                Open Settings
+              </a>
+            </div>
           )}
         </>
       )}

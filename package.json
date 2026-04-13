@@ -12,7 +12,7 @@
     "mcp": "npx tsx src/mcp-server.ts",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:dev": "npm run electron:build && electron .",
-    "electron:dist": "npm run build && npm run electron:build && electron-builder --mac --config"
+    "electron:dist": "npm run build && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
   },
   "build": {
     "appId": "com.descript.dashboard",
@@ -21,12 +21,13 @@
     "directories": {
       "output": "dist"
     },
+    "asar": false,
     "files": [
       "out/**/*",
       ".next/**/*",
       "public/**/*",
-      "src/**/*",
       "node_modules/**/*",
+      "bundle/**/*",
       "package.json",
       "next.config.ts"
     ],
@@ -38,10 +39,7 @@
       "icon": "public/icon-512.png",
       "category": "public.app-category.developer-tools",
       "identity": null
-    },
-    "asarUnpack": [
-      "node_modules/better-sqlite3/**"
-    ]
+    }
   },
   "dependencies": {
     "@linear/sdk": "^80.1.0",

@@ -45,3 +45,7 @@ next-env.d.ts
 
 # electron
 /dist
+/bundle
+
+# app config (API keys)
+.config.json

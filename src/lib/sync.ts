@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import { getEnv } from "@/lib/env";
 import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fetchBugBotThreadCounts, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
 import { fetchRawAgents, transformAgents, type RawCursorAgent } from "@/lib/cursor";
@@ -127,7 +128,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   let workItems = buildWorkItems(issues, prs, agents);
   const missingIds = findMissingLinearIds(workItems, knownIds);
 
-  if (missingIds.length > 0 && process.env.LINEAR_API_KEY) {
+  if (missingIds.length > 0 && getEnv("LINEAR_API_KEY")) {
     try {
       const cacheKey = `linear:raw:lookup:${missingIds.sort().join(",")}`;
       const cachedLookup = getCached<RawLinearIssue[]>(cacheKey);
@@ -138,7 +139,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
       } else {
         const start = Date.now();
         extraRaw = await dedupe(cacheKey, () =>
-          fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingIds)
+          fetchRawIssuesByIdentifiers(getEnv("LINEAR_API_KEY")!, missingIds)
         );
         logApiCall("linear", "lookup", "ok", Date.now() - start);
         setCache(cacheKey, extraRaw, TTL_LOOKUP);
@@ -160,7 +161,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   workItems = buildWorkItems(currentIssues, currentPrs, agents);
   const missingPrUrls = findMissingPrUrls(workItems, knownPrUrls);
 
-  if (missingPrUrls.length > 0 && process.env.GITHUB_TOKEN) {
+  if (missingPrUrls.length > 0 && getEnv("GITHUB_TOKEN")) {
     try {
       const cacheKey = `github:raw:pr-lookup:${missingPrUrls.sort().join(",")}`;
       const cachedLookup = getCached<RawGitHubPR[]>(cacheKey);
@@ -171,7 +172,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
       } else {
         const start = Date.now();
         extraRaw = await dedupe(cacheKey, () =>
-          fetchRawPrsByUrls(process.env.GITHUB_TOKEN!, missingPrUrls)
+          fetchRawPrsByUrls(getEnv("GITHUB_TOKEN")!, missingPrUrls)
         );
         logApiCall("github", "pr-lookup", "ok", Date.now() - start);
         setCache(cacheKey, extraRaw, TTL_LOOKUP);
@@ -187,7 +188,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
 
   // Phase 2c: Review issue enrichment (step 9)
   currentStep = 9;
-  if (reviewPrsTransformed.length > 0 && process.env.LINEAR_API_KEY) {
+  if (reviewPrsTransformed.length > 0 && getEnv("LINEAR_API_KEY")) {
     const idRe = /[A-Z]+-\d+/gi;
     const reviewIds = new Set<string>();
     for (const pr of reviewPrsTransformed) {
@@ -207,7 +208,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
         } else {
           const start = Date.now();
           extraRaw = await dedupe(cacheKey, () =>
-            fetchRawIssuesByIdentifiers(process.env.LINEAR_API_KEY!, missingReviewIds)
+            fetchRawIssuesByIdentifiers(getEnv("LINEAR_API_KEY")!, missingReviewIds)
           );
           logApiCall("linear", "review-lookup", "ok", Date.now() - start);
           setCache(cacheKey, extraRaw, TTL_LOOKUP);
@@ -251,7 +252,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
 // --- Fetch helpers (moved from route.ts) ---
 
 async function fetchLinear(force: boolean, errors: string[]) {
-  const apiKey = process.env.LINEAR_API_KEY;
+  const apiKey = getEnv("LINEAR_API_KEY");
   if (!apiKey) return { raw: [] as RawLinearIssue[], rateLimit: undefined };
 
   try {
@@ -267,7 +268,7 @@ async function fetchLinear(force: boolean, errors: string[]) {
 }
 
 async function fetchGitHub(force: boolean, errors: string[]) {
-  const token = process.env.GITHUB_TOKEN;
+  const token = getEnv("GITHUB_TOKEN");
   if (!token) return { raw: [] as RawGitHubPR[], rateLimit: undefined, searchRateLimit: undefined };
 
   try {
@@ -299,7 +300,7 @@ async function fetchGitHub(force: boolean, errors: string[]) {
 }
 
 async function fetchCursor(errors: string[]) {
-  const apiKey = process.env.CURSOR_API_KEY;
+  const apiKey = getEnv("CURSOR_API_KEY");
   if (!apiKey) return { raw: [] as RawCursorAgent[] };
 
   try {
@@ -315,7 +316,7 @@ async function fetchCursor(errors: string[]) {
 }
 
 async function fetchGitHubReviews(force: boolean, errors: string[]) {
-  const token = process.env.GITHUB_TOKEN;
+  const token = getEnv("GITHUB_TOKEN");
   if (!token) return { raw: [] as RawGitHubPR[], viewerLogin: "" };
 
   try {
@@ -331,7 +332,7 @@ async function fetchGitHubReviews(force: boolean, errors: string[]) {
 }
 
 async function fetchLinearReviews(errors: string[]) {
-  const apiKey = process.env.LINEAR_API_KEY;
+  const apiKey = getEnv("LINEAR_API_KEY");
   if (!apiKey) return { raw: [] as RawLinearIssue[] };
 
   try {
