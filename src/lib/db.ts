@@ -252,3 +252,17 @@ export function reviewItemAnchor(item: ReviewItem): string {
   const num = item.pr.url.match(/\/pull\/(\d+)/)?.[1] ?? String(item.pr.id);
   return `review:${item.pr.repo}#${num}`;
 }
+
+// --- Reset ---
+
+export function resetAll(): void {
+  const d = getDb();
+  d.exec(`
+    DELETE FROM work_items;
+    DELETE FROM review_items;
+    DELETE FROM cache;
+    DELETE FROM sync_status;
+    DELETE FROM api_calls;
+    DELETE FROM tags;
+  `);
+}
