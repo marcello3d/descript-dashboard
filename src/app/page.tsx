@@ -1677,9 +1677,16 @@ function Home() {
   const allItems = useMemo(() => {
     let items = allUnfilteredItems;
     if (repoFilter !== "all") {
+      const repoSuffix = `/${repoFilter}`;
       items = items.filter(item => {
-        const repo = item.prs[0]?.repo ?? item.agents[0]?.repo ?? "";
-        return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
+        if (item.prs.some(pr => pr.repo.endsWith(repoSuffix) || pr.repo === repoFilter)) return true;
+        if (item.agents.some(a => a.repo.endsWith(repoSuffix) || a.repo === repoFilter)) return true;
+        if (item.prs.length === 0 && item.agents.length === 0) {
+          const prUrls = item.linear?.prUrls ?? [];
+          if (prUrls.length === 0) return true;
+          return prUrls.some(url => url.includes(`/${repoFilter}/`));
+        }
+        return false;
       });
     }
     const showAll = serviceFilter.size === 0 || serviceFilter.size === ALL_SERVICES.size;
@@ -1720,6 +1727,14 @@ function Home() {
     return items;
   }, [allUnfilteredItems, repoFilter, serviceFilter]);
 
+  const filteredReviewItems = useMemo(() => {
+    if (repoFilter === "all") return reviewItems;
+    const repoSuffix = `/${repoFilter}`;
+    return reviewItems.filter(item =>
+      item.pr.repo.endsWith(repoSuffix) || item.pr.repo === repoFilter
+    );
+  }, [reviewItems, repoFilter]);
+
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
@@ -1748,14 +1763,14 @@ function Home() {
     const section = isReview ? "Requested reviews" : "My tasks";
     let summary = "";
     if (isReview) {
-      summary = formatReviewSummary(reviewItems);
+      summary = formatReviewSummary(filteredReviewItems);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
       const SHORT_LABELS: Record<string, string> = { "Changes requested": "Changes", "Waiting": "Review" };
       summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
-  }, [isReview, reviewItems, open]);
+  }, [isReview, filteredReviewItems, open]);
 
   useEffect(() => {
     document.title = pageTitle;
@@ -1770,7 +1785,7 @@ function Home() {
         <ToggleGroup
           options={[
             { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}`, hotkey: "m" },
-            { value: "review" as const, label: `Requested reviews${reviewItems.length > 0 ? ` (${reviewItems.length})` : ""}`, hotkey: "r" },
+            { value: "review" as const, label: `Requested reviews${filteredReviewItems.length > 0 ? ` (${filteredReviewItems.length})` : ""}`, hotkey: "r" },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
@@ -1819,7 +1834,7 @@ function Home() {
         {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
         </div>
         <div className="text-sm text-text-tertiary mt-1">
-          {isReview ? formatReviewSummary(reviewItems, true) : (() => {
+          {isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -1837,8 +1852,8 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue items={reviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-          {reviewItems.length === 0 && !anyLoading && (
+          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+          {filteredReviewItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
           )}
         </>
