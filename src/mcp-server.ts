@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { sync } from "@/lib/sync";
@@ -183,57 +182,19 @@ function createMcpServer(): McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP Transport + Session Management
+// Stateless HTTP Transport — new server + transport per request
 // ---------------------------------------------------------------------------
 
 const app = express();
 app.use(express.json());
 
-const transports = new Map<string, StreamableHTTPServerTransport>();
-
 app.post("/mcp", async (req, res) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-  if (sessionId && transports.has(sessionId)) {
-    await transports.get(sessionId)!.handleRequest(req, res, req.body);
-    return;
-  }
-
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    onsessioninitialized: (id) => {
-      transports.set(id, transport);
-    },
-    onsessionclosed: (id) => {
-      transports.delete(id);
-    },
+    sessionIdGenerator: undefined,
   });
-
-  transport.onclose = () => {
-    if (transport.sessionId) transports.delete(transport.sessionId);
-  };
-
   const server = createMcpServer();
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
-});
-
-app.get("/mcp", async (req, res) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports.has(sessionId)) {
-    res.status(400).json({ error: "Invalid or missing session ID" });
-    return;
-  }
-  await transports.get(sessionId)!.handleRequest(req, res);
-});
-
-app.delete("/mcp", async (req, res) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports.has(sessionId)) {
-    res.status(400).json({ error: "Invalid or missing session ID" });
-    return;
-  }
-  await transports.get(sessionId)!.handleRequest(req, res);
 });
 
 app.listen(PORT, "127.0.0.1", () => {
