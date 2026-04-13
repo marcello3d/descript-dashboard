@@ -1796,7 +1796,7 @@ function Home() {
             />
           </svg>
         </button>
-        <span className="text-[11px] text-text-tertiary tabular-nums">
+        <span className="text-[11px] text-text-tertiary tabular-nums" suppressHydrationWarning>
           {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
         </span>
         {rateLimitInfos.length > 0 && (
