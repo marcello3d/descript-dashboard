@@ -3,7 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
-import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
+import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
@@ -351,70 +351,39 @@ function ServiceHeader({
   );
 }
 
-type ReviewItem = {
-  key: string;
-  updatedAt: string;
-  title: string;
-  owner: string; // assignee or PR author
-  linear?: LinearIssue;
-  pr?: GitHubPR;
-};
-
-function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] {
-  const idRe = /[A-Z]+-\d+/gi;
-  return prs.map(pr => {
-    // Match by prUrl first, then by identifier in title/branch
-    let linear = issues.find(i => i.prUrls.includes(pr.url));
-    if (!linear) {
-      const prText = `${pr.title} ${pr.branch}`.toLowerCase();
-      linear = issues.find(i => prText.includes(i.identifier.toLowerCase()));
-    }
-    return {
-      key: `pr-${pr.id}`,
-      updatedAt: pr.updatedAt,
-      title: pr.title,
-      owner: pr.author !== pr.authorLogin ? `@${pr.authorLogin} (${pr.author})` : `@${pr.authorLogin}`,
-      pr,
-      linear,
-    };
-  });
+function reviewItemOwner(item: ReviewItem): string {
+  const pr = item.pr;
+  return pr.author !== pr.authorLogin ? `@${pr.authorLogin} (${pr.author})` : `@${pr.authorLogin}`;
 }
 
-function formatReviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string, long?: boolean): string {
-  const s = reviewSummary(prs, issues, viewerLogin);
+function formatReviewSummary(items: ReviewItem[], long?: boolean): string {
+  let personal = 0, team = 0, draft = 0;
+  for (const item of items) {
+    if (item.pr.draft) { draft++; }
+    else if (item.requestType === "individual") { personal++; }
+    else { team++; }
+  }
   const parts: string[] = [];
-  if (s.personal > 0) parts.push(`${s.personal} ${long ? "personally requested" : "personal"}`);
-  if (s.team > 0) parts.push(`${s.team} ${long ? "team requested" : "team"}`);
-  if (s.draft > 0) parts.push(`${s.draft} draft`);
+  if (personal > 0) parts.push(`${personal} ${long ? "personally requested" : "personal"}`);
+  if (team > 0) parts.push(`${team} ${long ? "team requested" : "team"}`);
+  if (draft > 0) parts.push(`${draft} draft`);
   return parts.join(" · ");
 }
 
-function reviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): { personal: number; team: number; draft: number } {
-  const built = buildReviewItems(prs, issues);
-  let personal = 0, team = 0, draft = 0;
-  for (const item of built) {
-    if (item.pr?.draft) { draft++; }
-    else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) { personal++; }
-    else { team++; }
-  }
-  return { personal, team, draft };
-}
-
-function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
+function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
   const groups = useMemo(() => {
-    const built = buildReviewItems(prs, issues);
     const favs: ReviewItem[] = [];
     const directReady: ReviewItem[] = [];
     const directDraft: ReviewItem[] = [];
     const teamReady: ReviewItem[] = [];
     const teamDraft: ReviewItem[] = [];
-    for (const item of built) {
-      if (favorites.has(item.key)) {
+    for (const item of reviewItems) {
+      if (favorites.has(item.id)) {
         favs.push(item);
-      } else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) {
-        (item.pr?.draft ? directDraft : directReady).push(item);
+      } else if (item.requestType === "individual") {
+        (item.pr.draft ? directDraft : directReady).push(item);
       } else {
-        (item.pr?.draft ? teamDraft : teamReady).push(item);
+        (item.pr.draft ? teamDraft : teamReady).push(item);
       }
     }
     const groups: { label: string; items: ReviewItem[] }[] = [];
@@ -424,7 +393,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
     if (directDraft.length > 0) groups.push({ label: "Individually requested — draft", items: directDraft });
     if (teamDraft.length > 0) groups.push({ label: "Team requested — draft", items: teamDraft });
     return groups;
-  }, [prs, issues, viewerLogin, favorites]);
+  }, [reviewItems, favorites]);
   const colCount = 7;
   if (groups.length === 0) return null;
   return (
@@ -455,32 +424,28 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
         <tbody key={label}>
           {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
           {!collapsed.has(label) && items.map(item => (
-            <tr key={item.key} className={tableRowClass}>
+            <tr key={item.id} className={tableRowClass}>
               <td className="py-1.5 px-0 text-center w-[24px]">
-                <FavoriteButton id={item.key} isFavorite={favorites.has(item.key)} onToggle={onToggleFavorite} />
+                <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
               </td>
               <td className="py-1.5 px-2 text-right w-[70px]">
                 {(() => {
-                  const { text, color } = timeAgo(item.updatedAt);
-                  return <span className={`text-xs ${color}`} title={new Date(item.updatedAt).toLocaleString()}>{text}</span>;
+                  const { text, color } = timeAgo(item.pr.updatedAt);
+                  return <span className={`text-xs ${color}`} title={new Date(item.pr.updatedAt).toLocaleString()}>{text}</span>;
                 })()}
               </td>
               <td className="py-1.5 px-2">
                 <span className="inline-flex items-center gap-1.5">
-                  <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
+                  <a href={item.pr.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
                     <PrStatusIcon pr={item.pr} />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.pr ? getPrNumber(item.pr.url) : ""}</span>
-                    {item.title}
+                    <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(item.pr.url)}</span>
+                    {item.pr.title}
                   </a>
-                  {item.pr && <CopyBranchButton branch={item.pr.branch} />}
+                  <CopyBranchButton branch={item.pr.branch} />
                 </span>
               </td>
               <td className="py-1.5 px-2 whitespace-nowrap">
-                {item.pr?.authorLogin ? (
-                  <a href={`https://github.com/${item.pr.authorLogin}`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-tertiary hover:underline">{item.owner}</a>
-                ) : (
-                  <span className="text-xs text-text-tertiary">{item.owner}</span>
-                )}
+                <a href={`https://github.com/${item.pr.authorLogin}`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-tertiary hover:underline">{reviewItemOwner(item)}</a>
               </td>
               <td className="py-1.5 px-1 text-center">
                 {item.linear && (
@@ -495,7 +460,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.pr && <ChangesSummary files={item.pr.changedFiles} additions={item.pr.additions} deletions={item.pr.deletions} url={`${item.pr.url}/files`} />}
+                <ChangesSummary files={item.pr.changedFiles} additions={item.pr.additions} deletions={item.pr.deletions} url={`${item.pr.url}/files`} />
               </td>
             </tr>
           ))}
@@ -591,7 +556,7 @@ function WorkItemTable({
   onAgentCreated,
   collapsed,
   onToggleCollapsed,
-  blockerData,
+  allTags,
   onAddTag,
   onRemoveTag,
   onStatusChanged,
@@ -604,7 +569,7 @@ function WorkItemTable({
   onAgentCreated: () => void;
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
-  blockerData: BlockerData;
+  allTags: string[];
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
   onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
@@ -675,8 +640,8 @@ function WorkItemTable({
               <td className="py-1.5 px-2">
                 <BlockerTags
                   itemId={item.id}
-                  tags={blockerData.tags[item.id] ?? []}
-                  allTags={blockerData.allTags}
+                  tags={item.tags}
+                  allTags={allTags}
                   onAdd={onAddTag}
                   onRemove={onRemoveTag}
                 >
@@ -1176,9 +1141,9 @@ export default function Page() {
 
 function useWorkItems(intervalMs = 300000) {
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [reviewPrs, setReviewPrs] = useState<GitHubPR[]>([]);
-  const [reviewIssues, setReviewIssues] = useState<LinearIssue[]>([]);
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [viewerLogin, setViewerLogin] = useState("");
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [stats, setStats] = useState<ApiStatRow[]>([]);
   const [recent, setRecent] = useState<ApiCallRecord[]>([]);
@@ -1191,9 +1156,9 @@ function useWorkItems(intervalMs = 300000) {
 
   const applyChunk = useCallback((json: any) => {
     setItems(json.items ?? []);
-    setReviewPrs(json.reviewPrs ?? []);
-    setReviewIssues(json.reviewIssues ?? []);
+    setReviewItems(json.reviewItems ?? []);
     if (json.viewerLogin) setViewerLogin(json.viewerLogin);
+    if (json.allTags) setAllTags(json.allTags);
     const rls: RateLimitInfo[] = [];
     if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
     if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
@@ -1270,7 +1235,34 @@ function useWorkItems(intervalMs = 300000) {
     ));
   }, []);
 
-  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus };
+  const addTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId && !item.tags.includes(tag)
+        ? { ...item, tags: [...item.tags, tag] }
+        : item
+    ));
+    setAllTags(prev => prev.includes(tag) ? prev : [...prev, tag].sort());
+    fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId
+        ? { ...item, tags: item.tags.filter(t => t !== tag) }
+        : item
+    ));
+    fetch("/api/tags", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, addTag, removeTag };
 }
 
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
@@ -1390,11 +1382,6 @@ function getTagColor(name: string) {
     hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
   }
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
-
-interface BlockerData {
-  tags: Record<string, string[]>;
-  allTags: string[];
 }
 
 function BlockerTags({
@@ -1579,7 +1566,7 @@ function BlockerTags({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag, removeTag } = useWorkItems();
 
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
@@ -1677,35 +1664,6 @@ function Home() {
     });
   }, []);
 
-  const [blockerData, setBlockerData] = useState<BlockerData>(() => {
-    if (typeof window === "undefined") return { tags: {}, allTags: [] };
-    try {
-      const saved = localStorage.getItem("dashboard:blockers");
-      return saved ? JSON.parse(saved) : { tags: {}, allTags: [] };
-    } catch { return { tags: {}, allTags: [] }; }
-  });
-  const addTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = prev.tags[itemId] ?? [];
-      if (itemTags.includes(tag)) return prev;
-      const next: BlockerData = {
-        tags: { ...prev.tags, [itemId]: [...itemTags, tag] },
-        allTags: prev.allTags.includes(tag) ? prev.allTags : [...prev.allTags, tag],
-      };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
-  const removeTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = (prev.tags[itemId] ?? []).filter(t => t !== tag);
-      const nextTags = { ...prev.tags };
-      if (itemTags.length === 0) delete nextTags[itemId]; else nextTags[itemId] = itemTags;
-      const next: BlockerData = { tags: nextTags, allTags: prev.allTags };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -1790,14 +1748,14 @@ function Home() {
     const section = isReview ? "Requested reviews" : "My tasks";
     let summary = "";
     if (isReview) {
-      summary = formatReviewSummary(reviewPrs, reviewIssues, viewerLogin);
+      summary = formatReviewSummary(reviewItems);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
       const SHORT_LABELS: Record<string, string> = { "Changes requested": "Changes", "Waiting": "Review" };
       summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
-  }, [isReview, reviewPrs, reviewIssues, viewerLogin, open]);
+  }, [isReview, reviewItems, open]);
 
   useEffect(() => {
     document.title = pageTitle;
@@ -1812,7 +1770,7 @@ function Home() {
         <ToggleGroup
           options={[
             { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}`, hotkey: "m" },
-            { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}`, hotkey: "r" },
+            { value: "review" as const, label: `Requested reviews${reviewItems.length > 0 ? ` (${reviewItems.length})` : ""}`, hotkey: "r" },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
@@ -1861,7 +1819,7 @@ function Home() {
         {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
         </div>
         <div className="text-sm text-text-tertiary mt-1">
-          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin, true) : (() => {
+          {isReview ? formatReviewSummary(reviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -1879,8 +1837,8 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue prs={reviewPrs} issues={reviewIssues} viewerLogin={viewerLogin} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-          {reviewPrs.length === 0 && reviewIssues.length === 0 && !anyLoading && (
+          <ReviewQueue items={reviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+          {reviewItems.length === 0 && !anyLoading && (
             <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
           )}
         </>
@@ -1895,7 +1853,7 @@ function Home() {
             onAgentCreated={refreshAll}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
-            blockerData={blockerData}
+            allTags={allTags}
             onAddTag={addTag}
             onRemoveTag={removeTag}
             onStatusChanged={updateItemStatus}
