@@ -3,26 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 4080",
+    "dev": "concurrently -n next,mcp -c blue,magenta \"next dev -p 4080\" \"npx tsx src/mcp-server.ts\"",
+    "dev:next": "next dev -p 4080",
     "build": "next build",
     "start": "next start -p 4080",
-    "lint": "eslint"
+    "lint": "eslint",
+    "mcp": "npx tsx src/mcp-server.ts"
   },
   "dependencies": {
     "@linear/sdk": "^80.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.8.0",
     "next": "16.2.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "react-icons": "^5.6.0"
+    "react-icons": "^5.6.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
