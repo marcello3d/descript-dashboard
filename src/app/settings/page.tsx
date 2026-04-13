@@ -17,9 +17,15 @@ interface KeyInfo {
   masked: string;
 }
 
+interface NotificationPrefs {
+  reviewRequests: boolean;
+  syncErrors: boolean;
+}
+
 interface SettingsData {
   keys: Record<string, KeyInfo>;
   envOverrides: Record<string, boolean>;
+  notifications: NotificationPrefs;
 }
 
 const KEY_CONFIG = [
@@ -129,6 +135,23 @@ export default function SettingsPage() {
 
   const hasChanges = Object.values(values).some((v) => v !== "");
 
+  const handleToggleNotification = useCallback(async (key: keyof NotificationPrefs) => {
+    const current = data?.notifications?.[key] !== false;
+    const newValue = !current;
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notifications: { [key]: newValue } }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to update");
+      setData((prev) => prev ? { ...prev, notifications: json.notifications } : prev);
+    } catch (e: any) {
+      toast("error", e.message);
+    }
+  }, [data, toast]);
+
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-8">
       <div className="h-[38px]" />
@@ -220,6 +243,34 @@ export default function SettingsPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Desktop Notifications */}
+      <div className="mt-8 pt-6 border-t border-border">
+        <h2 className="text-sm font-medium text-text-primary mb-1">Desktop Notifications</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          macOS notifications shown when the window is not focused. In-app toasts are always enabled.
+        </p>
+
+        <div className="space-y-3">
+          {([
+            { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
+            { key: "syncErrors" as const, label: "Sync errors", description: "When API calls to Linear, GitHub, or Cursor fail" },
+          ]).map(({ key, label, description }) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data?.notifications?.[key] !== false}
+                onChange={() => handleToggleNotification(key)}
+                className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+              />
+              <div>
+                <span className="text-sm text-text-primary">{label}</span>
+                <p className="text-xs text-text-tertiary">{description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="mt-8 flex items-center gap-3">

@@ -1,7 +1,24 @@
 import { Notification, BrowserWindow } from 'electron'
+import fs from 'fs'
+import path from 'path'
 
 const seenReviewIds = new Set<string>()
 let initialized = false
+
+function readConfig(): Record<string, any> {
+  try {
+    const configPath = path.join(process.cwd(), '.config.json')
+    const raw = fs.readFileSync(configPath, 'utf-8')
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+function isEnabled(type: 'reviewRequests' | 'syncErrors'): boolean {
+  const config = readConfig()
+  return config.notifications?.[type] !== false // default on
+}
 
 interface ReviewItem {
   id: string
@@ -17,6 +34,11 @@ export function initSeenReviews(reviews: ReviewItem[]): void {
 export function notifyNewReviews(reviews: ReviewItem[]): void {
   if (!initialized) {
     initSeenReviews(reviews)
+    return
+  }
+
+  if (!isEnabled('reviewRequests')) {
+    for (const r of reviews) seenReviewIds.add(r.id)
     return
   }
 
