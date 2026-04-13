@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { SiLinear, SiGithub } from "react-icons/si";
+import { useToast } from "@/components/Toast";
 
 function CursorIcon({ className }: { className?: string }) {
   return (
@@ -52,8 +53,8 @@ export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -71,7 +72,6 @@ export default function SettingsPage() {
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    setSaved(false);
     setError(null);
     try {
       const body: Record<string, string> = {};
@@ -89,14 +89,14 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to save");
       setData((prev) => (prev ? { ...prev, keys: json.keys } : prev));
       setValues({});
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast("success", "Settings saved");
     } catch (e: any) {
       setError(e.message);
+      toast("error", e.message);
     } finally {
       setSaving(false);
     }
-  }, [values]);
+  }, [values, toast]);
 
   const handleClear = useCallback(
     async (key: string) => {
@@ -116,13 +116,15 @@ export default function SettingsPage() {
           delete next[key];
           return next;
         });
+        toast("info", "Key removed");
       } catch (e: any) {
         setError(e.message);
+        toast("error", e.message);
       } finally {
         setSaving(false);
       }
     },
-    []
+    [toast]
   );
 
   const hasChanges = Object.values(values).some((v) => v !== "");
@@ -228,9 +230,6 @@ export default function SettingsPage() {
         >
           {saving ? "Saving..." : "Save"}
         </button>
-        {saved && (
-          <span className="text-sm text-status-green">Saved</span>
-        )}
         <a
           href="/"
           className="text-sm text-text-tertiary hover:text-text-secondary transition-colors ml-auto"
