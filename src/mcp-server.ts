@@ -236,6 +236,6 @@ app.delete("/mcp", async (req, res) => {
   await transports.get(sessionId)!.handleRequest(req, res);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`MCP server listening on http://localhost:${PORT}/mcp`);
 });
