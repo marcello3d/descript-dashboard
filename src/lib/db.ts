@@ -111,7 +111,7 @@ function rowToReviewItem(row: ReviewItemRow): ReviewItem {
 
 // --- Work Items ---
 
-export function upsertWorkItems(items: WorkItem[], prune = false): void {
+export function upsertWorkItems(items: WorkItem[]): void {
   const d = getDb();
   const findByAnchor = d.prepare("SELECT id, created_at, tags FROM work_items WHERE anchor = ?");
   const insert = d.prepare(
@@ -119,10 +119,8 @@ export function upsertWorkItems(items: WorkItem[], prune = false): void {
   );
   const now = Date.now();
   const tx = d.transaction(() => {
-    const currentAnchors = new Set<string>();
     for (const item of items) {
       const anchor = workItemAnchor(item);
-      currentAnchors.add(anchor);
       const existing = findByAnchor.get(anchor) as { id: string; created_at: number; tags: string } | undefined;
       const id = existing?.id ?? crypto.randomUUID();
       const createdAt = existing?.created_at ?? now;
@@ -133,13 +131,6 @@ export function upsertWorkItems(items: WorkItem[], prune = false): void {
         JSON.stringify(item.prs), JSON.stringify(item.agents),
         tags, createdAt, now,
       );
-    }
-    if (prune) {
-      const allRows = d.prepare("SELECT anchor FROM work_items").all() as { anchor: string }[];
-      const del = d.prepare("DELETE FROM work_items WHERE anchor = ?");
-      for (const row of allRows) {
-        if (!currentAnchors.has(row.anchor)) del.run(row.anchor);
-      }
     }
   });
   tx();

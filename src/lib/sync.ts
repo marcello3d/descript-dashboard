@@ -36,11 +36,11 @@ const TTL_LOOKUP = 5 * 60 * 1000;
 export async function sync(opts: { force?: boolean; onProgress?: SyncCallback }): Promise<SyncResult> {
   const { force = false, onProgress } = opts;
 
-  let rawLinear: RawLinearIssue[] = [];
-  let rawGithub: RawGitHubPR[] = [];
-  let rawCursor: RawCursorAgent[] = [];
-  let rawReviewPrs: RawGitHubPR[] = [];
-  let rawReviewIssues: RawLinearIssue[] = [];
+  let rawLinear = getCached<RawLinearIssue[]>("linear:raw:issues", true) ?? [];
+  let rawGithub = getCached<RawGitHubPR[]>("github:raw:prs", true) ?? [];
+  let rawCursor = getCached<RawCursorAgent[]>("cursor:raw:agents", true) ?? [];
+  let rawReviewPrs = getCached<RawGitHubPR[]>("github:raw:reviewPrs", true) ?? [];
+  let rawReviewIssues = getCached<RawLinearIssue[]>("linear:raw:reviewIssues", true) ?? [];
   let viewerLogin = "";
   const rateLimits: SyncResult["rateLimits"] = {};
   const errors: string[] = [];
@@ -232,7 +232,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   const allReviewPrs = transformReviewPRs(rawReviewPrs);
   const reviewItems = buildReviewItems(allReviewPrs, allReviewIssues, viewerLogin);
 
-  if (finalWorkItems.length > 0) upsertWorkItems(finalWorkItems, true);
+  if (finalWorkItems.length > 0) upsertWorkItems(finalWorkItems);
   if (reviewItems.length > 0) upsertReviewItems(reviewItems);
 
   // Mark synced services
@@ -258,6 +258,7 @@ async function fetchLinear(force: boolean, errors: string[]) {
     const start = Date.now();
     const { issues, rateLimit } = await dedupe("linear:issues", () => fetchRawAssignedIssues(apiKey));
     logApiCall("linear", "issues", "ok", Date.now() - start, { cost: rateLimit?.cost });
+    setCache("linear:raw:issues", issues, TTL_LINEAR);
     return { raw: issues, rateLimit };
   } catch (e: any) {
     errors.push(`linear: ${e.message}`);
@@ -273,6 +274,7 @@ async function fetchGitHub(force: boolean, errors: string[]) {
     const start = Date.now();
     const { prs, rateLimit, searchRateLimit } = await dedupe("github:prs", () => fetchRawAuthoredPRs(token));
     logApiCall("github", "prs", "ok", Date.now() - start, { cost: rateLimit?.cost });
+    setCache("github:raw:prs", prs, TTL_GITHUB);
     return { raw: prs, rateLimit, searchRateLimit };
   } catch (e: any) {
     errors.push(`github: ${e.message}`);
@@ -295,6 +297,7 @@ async function fetchCursor(errors: string[]) {
     const start = Date.now();
     const agents = await dedupe("cursor:agents", () => fetchRawAgents(apiKey));
     logApiCall("cursor", "agents", "ok", Date.now() - start);
+    setCache("cursor:raw:agents", agents, TTL_CURSOR);
     return { raw: agents };
   } catch (e: any) {
     errors.push(`cursor: ${e.message}`);
@@ -310,6 +313,7 @@ async function fetchGitHubReviews(force: boolean, errors: string[]) {
     const start = Date.now();
     const { prs, viewerLogin } = await dedupe("github:reviews", () => fetchRawReviewRequestedPRs(token));
     logApiCall("github", "reviews", "ok", Date.now() - start);
+    setCache("github:raw:reviewPrs", prs, TTL_GITHUB_REVIEWS);
     return { raw: prs, viewerLogin };
   } catch (e: any) {
     errors.push(`github-reviews: ${e.message}`);
@@ -325,6 +329,7 @@ async function fetchLinearReviews(errors: string[]) {
     const start = Date.now();
     const issues = await dedupe("linear:reviews", () => fetchRawSubscribedIssues(apiKey));
     logApiCall("linear", "reviews", "ok", Date.now() - start);
+    setCache("linear:raw:reviewIssues", issues, TTL_LINEAR_REVIEWS);
     return { raw: issues };
   } catch (e: any) {
     errors.push(`linear-reviews: ${e.message}`);
