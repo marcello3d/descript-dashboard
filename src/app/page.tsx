@@ -239,9 +239,19 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
           <ReviewIcon decision={pr.reviewDecision} />
           {isStacked && (
-            <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
-              &rarr; {pr.baseBranch}
-            </span>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
+              }}
+              className="text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
+              title={`Stacked on ${pr.baseBranch} — click to view stack`}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0L1.874 8.814a.75.75 0 0 1-.273-1.025Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0l-5.249-3.044a.75.75 0 0 1-.273-1.025Z" />
+              </svg>
+            </button>
           )}
         </a>
         <CopyBranchButton branch={pr.branch} />

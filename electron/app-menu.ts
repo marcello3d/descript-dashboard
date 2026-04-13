@@ -34,6 +34,20 @@ export function buildAppMenu(isDev: boolean): Menu {
       ],
     },
 
+    // Edit — required for Cmd+C/V/X to work in Electron
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+
     // View — matches in-app hotkeys (bare letters: m, r, s, p, k, a)
     {
       label: 'View',

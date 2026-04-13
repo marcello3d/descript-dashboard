@@ -184,7 +184,7 @@ export default function SettingsPage() {
 
               <div className="flex gap-2">
                 <input
-                  type="password"
+                  type="text"
                   value={currentValue}
                   onChange={(e) =>
                     setValues((prev) => ({ ...prev, [key]: e.target.value }))

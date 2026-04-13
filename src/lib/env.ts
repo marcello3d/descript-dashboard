@@ -9,7 +9,9 @@ export function invalidateEnvCache(): void {
   cacheTime = 0;
 }
 
-export function getEnv(key: keyof AppConfig): string | undefined {
+type StringKeys = "GITHUB_TOKEN" | "LINEAR_API_KEY" | "CURSOR_API_KEY";
+
+export function getEnv(key: StringKeys): string | undefined {
   // process.env takes priority
   const envVal = process.env[key];
   if (envVal) return envVal;
