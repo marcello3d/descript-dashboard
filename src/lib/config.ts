@@ -13,7 +13,7 @@ export interface AppConfig {
   notifications?: NotificationPrefs;
 }
 
-const SECRET_KEYS = ["GITHUB_TOKEN", "LINEAR_API_KEY", "CURSOR_API_KEY"] as const;
+export const SECRET_KEYS = ["GITHUB_TOKEN", "LINEAR_API_KEY", "CURSOR_API_KEY"] as const;
 
 function getConfigPath(): string {
   const configDir = process.env.DESCRIPT_DASHBOARD_CONFIG_PATH || process.cwd();

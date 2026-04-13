@@ -1,4 +1,4 @@
-import { getConfig, type AppConfig } from "@/lib/config";
+import { getConfig, type AppConfig, SECRET_KEYS } from "@/lib/config";
 
 let cached: AppConfig | null = null;
 let cacheTime = 0;
@@ -9,9 +9,8 @@ export function invalidateEnvCache(): void {
   cacheTime = 0;
 }
 
-type StringKeys = "GITHUB_TOKEN" | "LINEAR_API_KEY" | "CURSOR_API_KEY";
 
-export function getEnv(key: StringKeys): string | undefined {
+export function getEnv(key: (typeof SECRET_KEYS)[number]): string | undefined {
   // process.env takes priority
   const envVal = process.env[key];
   if (envVal) return envVal;
