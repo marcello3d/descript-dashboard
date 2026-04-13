@@ -94,3 +94,13 @@ body {
 .toggle-inactive:hover {
   opacity: 0.75;
 }
+
+/* Electron drag region for macOS titlebar */
+[data-drag-region] {
+  -webkit-app-region: drag;
+}
+[data-drag-region] button,
+[data-drag-region] a,
+[data-drag-region] input {
+  -webkit-app-region: no-drag;
+}

@@ -192,8 +192,8 @@ function getPrNumber(url: string): string {
   return url.split("/").pop() ?? "";
 }
 
-const theadClass = "sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]";
-const sectionHeaderClass = "sticky top-[84px] z-[5] bg-surface-alt";
+const theadClass = "sticky top-[90px] z-10 bg-background/70 backdrop-blur-[2px]";
+const sectionHeaderClass = "sticky top-[122px] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
 const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
@@ -1786,7 +1786,8 @@ function Home() {
 
   return (
     <div className="w-full px-4 py-4">
-      <header className="mb-1 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+      <div className="h-[38px] -mx-4 -mt-4 sticky top-0 z-30 bg-background" data-drag-region />
+      <header className="mb-1 sticky top-[38px] z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup

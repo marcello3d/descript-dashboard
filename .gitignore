@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local cache
 .cache.db*
+
+# electron
+/dist
