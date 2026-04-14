@@ -95,7 +95,9 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to save");
       setData((prev) => (prev ? { ...prev, keys: json.keys } : prev));
       setValues({});
-      toast("success", "Settings saved");
+      toast("success", "Settings saved — redirecting…");
+      // Navigate back with fresh=1 so the dashboard re-fetches with new keys
+      setTimeout(() => { window.location.href = "/?fresh=1"; }, 800);
     } catch (e: any) {
       setError(e.message);
       toast("error", e.message);

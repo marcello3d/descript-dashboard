@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, nativeImage, Menu } from 'electron'
 import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
+import fs from 'fs'
 import { buildAppMenu } from './app-menu'
 import { createTray, destroyTray, refreshTrayData } from './tray'
 import { DEV_PORT } from './constants'
@@ -50,32 +51,42 @@ function startNext(): Promise<void> {
     let cmd: string
     let args: string[]
 
+    let cwd: string
+
     if (isDev) {
-      // Dev: use system npx
+      // Dev: use system npx + next dev
       cmd = 'npx'
       args = ['next', 'dev', '-p', String(DEV_PORT)]
+      cwd = process.cwd()
     } else {
-      // Packaged: use bundled Node binary + next CLI directly
-      cmd = join(projectRoot, 'bundle', 'node')
-      const nextBin = join(projectRoot, 'node_modules', 'next', 'dist', 'bin', 'next')
-      args = [nextBin, 'start', '-p', String(DEV_PORT)]
+      // Packaged: use bundled Node binary + standalone server.js
+      cmd = join(app.getAppPath(), 'bundle', 'node')
+      const serverJs = join(process.resourcesPath, 'standalone', 'server.js')
+      args = [serverJs]
+      cwd = join(process.resourcesPath, 'standalone')
     }
 
     nextProcess = spawn(cmd, args, {
-      cwd: projectRoot,
+      cwd,
       stdio: 'pipe',
       shell: isDev,
       env: {
         ...process.env,
+        PORT: String(DEV_PORT),
+        HOSTNAME: '127.0.0.1',
         DESCRIPT_DASHBOARD_CONFIG_PATH: app.getPath('userData'),
       },
     })
 
     let resolved = false
+    const logPath = join(app.getPath('userData'), 'next-server.log')
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' })
+    logStream.write(`\n--- ${new Date().toISOString()} ---\n`)
 
     nextProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString()
       process.stdout.write(`[next] ${output}`)
+      logStream.write(output)
       if (!resolved && (output.includes(`localhost:${DEV_PORT}`) || output.includes('Ready'))) {
         resolved = true
         resolve()
@@ -83,7 +94,9 @@ function startNext(): Promise<void> {
     })
 
     nextProcess.stderr?.on('data', (data: Buffer) => {
-      process.stderr.write(`[next] ${data.toString()}`)
+      const output = data.toString()
+      process.stderr.write(`[next] ${output}`)
+      logStream.write(`[stderr] ${output}`)
     })
 
     nextProcess.on('error', (err) => {
@@ -113,7 +126,7 @@ function killNext(): void {
 app.setName('Descript Dashboard')
 
 app.whenReady().then(async () => {
-  Menu.setApplicationMenu(buildAppMenu(isDev))
+  Menu.setApplicationMenu(buildAppMenu())
   const win = createWindow()
   createTray()
   win.focus()

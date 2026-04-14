@@ -2,7 +2,7 @@ import { getConfig, type AppConfig } from "@/lib/config";
 
 let cached: AppConfig | null = null;
 let cacheTime = 0;
-const CACHE_TTL = 10_000; // re-read config file at most every 10s
+const CACHE_TTL = 2_000; // re-read config file frequently to pick up settings changes
 
 export function invalidateEnvCache(): void {
   cached = null;

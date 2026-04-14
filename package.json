@@ -12,7 +12,7 @@
     "mcp": "npx tsx src/mcp-server.ts",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:dev": "npm run electron:build && electron .",
-    "electron:dist": "npm run build && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
+    "electron:dist": "next build --webpack && node scripts/prepare-standalone.js && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
   },
   "build": {
     "appId": "com.descript.dashboard",
@@ -24,12 +24,12 @@
     "asar": false,
     "files": [
       "out/**/*",
-      ".next/**/*",
-      "public/**/*",
-      "node_modules/**/*",
       "bundle/**/*",
       "package.json",
-      "next.config.ts"
+      "!node_modules"
+    ],
+    "extraResources": [
+      { "from": ".next/standalone", "to": "standalone", "filter": ["**/*"] }
     ],
     "mac": {
       "target": [

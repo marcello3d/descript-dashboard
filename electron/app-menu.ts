@@ -9,7 +9,7 @@ function sendKey(key: string): void {
   )
 }
 
-export function buildAppMenu(isDev: boolean): Menu {
+export function buildAppMenu(): Menu {
   const template: Electron.MenuItemConstructorOptions[] = [
     // App menu
     {
@@ -86,27 +86,25 @@ export function buildAppMenu(isDev: boolean): Menu {
     },
   ]
 
-  // Developer menu (dev only)
-  if (isDev) {
-    template.push({
-      label: 'Developer',
-      submenu: [
-        { role: 'toggleDevTools' },
-        {
-          label: 'Force Reload',
-          accelerator: 'CmdOrCtrl+Shift+R',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-            if (win) win.webContents.reloadIgnoringCache()
-          },
+  // Developer menu (always available for debugging)
+  template.push({
+    label: 'Developer',
+    submenu: [
+      { role: 'toggleDevTools' },
+      {
+        label: 'Force Reload',
+        accelerator: 'CmdOrCtrl+Shift+R',
+        click: () => {
+          const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+          if (win) win.webContents.reloadIgnoringCache()
         },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-      ],
-    })
-  }
+      },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+    ],
+  })
 
   return Menu.buildFromTemplate(template)
 }

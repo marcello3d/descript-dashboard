@@ -1242,7 +1242,16 @@ function useWorkItems(intervalMs = 300000) {
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
   useEffect(() => {
-    doFetch(false);
+    // If arriving with ?fresh=1 (e.g. after saving settings), force a bypass
+    const isFresh = new URLSearchParams(window.location.search).get("fresh") === "1";
+    doFetch(isFresh);
+    if (isFresh) {
+      // Clean up the URL param
+      const params = new URLSearchParams(window.location.search);
+      params.delete("fresh");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : "/");
+    }
     const id = setInterval(() => doFetch(false), intervalMs);
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
