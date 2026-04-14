@@ -59,6 +59,7 @@ export interface RawGitHubPR {
   userDisplayName?: string; // resolved from GitHub API, present on review PRs
   requestedReviewers?: string[]; // individual logins requested for review
   requestedTeams?: string[]; // team slugs requested for review
+  bugBotThreadCount?: number;
 }
 
 export interface RawGitHubResult {
@@ -106,6 +107,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     checksState: null,
     requestedReviewers: raw.requestedReviewers ?? [],
     requestedTeams: raw.requestedTeams ?? [],
+    bugBotThreadCount: raw.bugBotThreadCount ?? 0,
   };
 }
 
@@ -460,6 +462,69 @@ export async function fetchRawReviewRequestedPRs(
   } catch { /* ignore */ }
 
   return { prs: allPrs, viewerLogin };
+}
+
+const BUG_BOT_THREADS_QUERY = `
+  query($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100) {
+          nodes {
+            isResolved
+            comments(first: 1) {
+              nodes { author { login } }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const BUG_BOT_LOGIN = "cursor";
+
+export async function fetchBugBotThreadCounts(
+  accessToken: string,
+  prs: RawGitHubPR[]
+): Promise<Map<number, number>> {
+  const octokit = new Octokit({ auth: accessToken });
+  const counts = new Map<number, number>();
+
+  const openPrs = prs.filter(pr => pr.state === "open" && !pr.merged);
+  if (openPrs.length === 0) return counts;
+
+  const prNumberRe = /\/pull\/(\d+)$/;
+  const BATCH_SIZE = 5;
+
+  for (let i = 0; i < openPrs.length; i += BATCH_SIZE) {
+    const batch = openPrs.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (pr) => {
+        try {
+          const m = pr.url.match(prNumberRe);
+          if (!m) return;
+          const number = parseInt(m[1], 10);
+
+          const result: any = await octokit.graphql(BUG_BOT_THREADS_QUERY, {
+            owner: pr.owner,
+            repo: pr.repo,
+            number,
+          });
+
+          const threads = result?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+          const unresolvedCount = threads.filter((t: any) => {
+            if (t.isResolved) return false;
+            const author = t.comments?.nodes?.[0]?.author?.login;
+            return author === BUG_BOT_LOGIN;
+          }).length;
+
+          if (unresolvedCount > 0) counts.set(pr.id, unresolvedCount);
+        } catch { /* ignore per-PR failures */ }
+      })
+    );
+  }
+
+  return counts;
 }
 
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {

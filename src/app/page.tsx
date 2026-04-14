@@ -226,25 +226,32 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <span className="inline-flex items-center gap-1">
-      <a
-        href={pr.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={cellLinkFlex}
-        title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
-      >
-        <PrStatusIcon pr={pr} />
-        <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
-        <ReviewIcon decision={pr.reviewDecision} />
-        {isStacked && (
-          <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
-            &rarr; {pr.baseBranch}
-          </span>
-        )}
-      </a>
-      <CopyBranchButton branch={pr.branch} />
-    </span>
+    <div className="flex flex-col">
+      <span className="inline-flex items-center gap-1">
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cellLinkFlex}
+          title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+        >
+          <PrStatusIcon pr={pr} />
+          <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
+          <ReviewIcon decision={pr.reviewDecision} />
+          {isStacked && (
+            <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
+              &rarr; {pr.baseBranch}
+            </span>
+          )}
+        </a>
+        <CopyBranchButton branch={pr.branch} />
+      </span>
+      {pr.bugBotThreadCount > 0 && (
+        <span className="text-xs text-red-500 font-medium">
+          {pr.bugBotThreadCount} bug bot {pr.bugBotThreadCount === 1 ? "issue" : "issues"}
+        </span>
+      )}
+    </div>
   );
 }
 
