@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
+import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fetchBugBotThreadCounts, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
 import { fetchRawAgents, transformAgents, type RawCursorAgent } from "@/lib/cursor";
 import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
@@ -274,6 +274,15 @@ async function fetchGitHub(force: boolean, errors: string[]) {
     const start = Date.now();
     const { prs, rateLimit, searchRateLimit } = await dedupe("github:prs", () => fetchRawAuthoredPRs(token));
     logApiCall("github", "prs", "ok", Date.now() - start, { cost: rateLimit?.cost });
+
+    try {
+      const bugBotCounts = await fetchBugBotThreadCounts(token, prs);
+      for (const pr of prs) {
+        const count = bugBotCounts.get(pr.id);
+        if (count) pr.bugBotThreadCount = count;
+      }
+    } catch { /* don't block sync on bug bot fetch failure */ }
+
     setCache("github:raw:prs", prs, TTL_GITHUB);
     return { raw: prs, rateLimit, searchRateLimit };
   } catch (e: any) {
