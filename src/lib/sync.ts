@@ -232,8 +232,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   const allReviewPrs = transformReviewPRs(rawReviewPrs);
   const reviewItems = buildReviewItems(allReviewPrs, allReviewIssues, viewerLogin);
 
-  // Upsert only -- stale items are kept
-  if (finalWorkItems.length > 0) upsertWorkItems(finalWorkItems);
+  if (finalWorkItems.length > 0) upsertWorkItems(finalWorkItems, true);
   if (reviewItems.length > 0) upsertReviewItems(reviewItems);
 
   // Mark synced services
