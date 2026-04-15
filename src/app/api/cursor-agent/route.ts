@@ -1,8 +1,9 @@
 import { createAgent, transformAgent } from "@/lib/cursor";
 import { resetSyncStatus } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.CURSOR_API_KEY;
+  const apiKey = getEnv("CURSOR_API_KEY");
   if (!apiKey) {
     return Response.json({ error: "CURSOR_API_KEY not configured" }, { status: 500 });
   }

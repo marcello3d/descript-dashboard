@@ -192,8 +192,8 @@ function getPrNumber(url: string): string {
   return url.split("/").pop() ?? "";
 }
 
-const theadClass = "sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]";
-const sectionHeaderClass = "sticky top-[84px] z-[5] bg-surface-alt";
+const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
+const sectionHeaderClass = "sticky top-[calc(var(--titlebar-height,0px)+84px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
 const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
@@ -239,9 +239,19 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
           <ReviewIcon decision={pr.reviewDecision} />
           {isStacked && (
-            <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
-              &rarr; {pr.baseBranch}
-            </span>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
+              }}
+              className="text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
+              title={`Stacked on ${pr.baseBranch} — click to view stack`}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0L1.874 8.814a.75.75 0 0 1-.273-1.025Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0l-5.249-3.044a.75.75 0 0 1-.273-1.025Z" />
+              </svg>
+            </button>
           )}
         </a>
         <CopyBranchButton branch={pr.branch} />
@@ -1582,6 +1592,12 @@ function Home() {
     return () => clearInterval(id);
   }, []);
 
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    if (navigator.userAgent.includes("Electron")) setIsElectron(true);
+  }, []);
+  const titlebarHeight = isElectron ? 38 : 0;
+
   const searchParams = useSearchParams();
 
 
@@ -1785,8 +1801,9 @@ function Home() {
 
 
   return (
-    <div className="w-full px-4 py-4">
-      <header className="mb-1 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+    <div className="w-full px-4 py-4" style={{ "--titlebar-height": `${titlebarHeight}px` } as React.CSSProperties}>
+      {isElectron && <div className="h-[38px] -mx-4 -mt-4 sticky top-0 z-30 bg-background" data-drag-region />}
+      <header className="mb-1 sticky top-[var(--titlebar-height,0px)] z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
@@ -1839,6 +1856,17 @@ function Home() {
           </svg>
         </button>
         <div className="flex-1" />
+        <a
+          href="/settings"
+          className={iconButtonClass}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </a>
         {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
@@ -1864,9 +1892,16 @@ function Home() {
       </header>
 
       {serviceErrors.length > 0 && (
-        <div className="mb-3 space-y-1">
+        <div className="mb-3 px-3 py-2 rounded-lg border border-status-red/20 bg-status-red/5">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-status-red flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm font-medium text-status-red">Connection errors</span>
+            <a href="/settings" className="ml-auto text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+          </div>
           {serviceErrors.map((err, i) => (
-            <p key={i} className="text-xs text-status-red">{err}</p>
+            <p key={i} className="text-xs text-status-red/80 ml-6">{err}</p>
           ))}
         </div>
       )}
@@ -1875,7 +1910,12 @@ function Home() {
         <>
           <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
           {filteredReviewItems.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
+            <div className="text-center py-16 space-y-2">
+              <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
+              {serviceErrors.length > 0 && (
+                <a href="/settings" className="inline-block text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+              )}
+            </div>
           )}
         </>
       ) : (
@@ -1895,9 +1935,20 @@ function Home() {
             onStatusChanged={updateItemStatus}
           />
           {displayItems.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">
-              No active items. Check your API keys in .env.local
-            </p>
+            <div className="text-center py-16 space-y-3">
+              <svg className="w-10 h-10 mx-auto text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <p className="text-sm text-text-secondary font-medium">No active items</p>
+              <p className="text-sm text-text-tertiary">Add your API keys to get started</p>
+              <a
+                href="/settings"
+                className="inline-block mt-2 px-4 py-1.5 text-sm font-medium rounded-md bg-text-primary text-background hover:opacity-90 transition-opacity"
+              >
+                Open Settings
+              </a>
+            </div>
           )}
         </>
       )}

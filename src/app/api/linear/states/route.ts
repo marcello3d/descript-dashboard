@@ -1,7 +1,8 @@
 import { fetchWorkflowStatesForIssue } from "@/lib/linear";
+import { getEnv } from "@/lib/env";
 
 export async function GET(request: Request) {
-  const apiKey = process.env.LINEAR_API_KEY;
+  const apiKey = getEnv("LINEAR_API_KEY");
   if (!apiKey) {
     return Response.json({ error: "LINEAR_API_KEY not configured" }, { status: 500 });
   }
