@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { SiLinear, SiGithub } from "react-icons/si";
+import { useToast } from "@/components/Toast";
 
 function CursorIcon({ className }: { className?: string }) {
   return (
@@ -16,9 +17,15 @@ interface KeyInfo {
   masked: string;
 }
 
+interface NotificationPrefs {
+  reviewRequests: boolean;
+  syncErrors: boolean;
+}
+
 interface SettingsData {
   keys: Record<string, KeyInfo>;
   envOverrides: Record<string, boolean>;
+  notifications: NotificationPrefs;
 }
 
 const KEY_CONFIG = [
@@ -52,8 +59,8 @@ export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -71,7 +78,6 @@ export default function SettingsPage() {
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    setSaved(false);
     setError(null);
     try {
       const body: Record<string, string> = {};
@@ -89,14 +95,16 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to save");
       setData((prev) => (prev ? { ...prev, keys: json.keys } : prev));
       setValues({});
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast("success", "Settings saved — redirecting…");
+      // Navigate back with fresh=1 so the dashboard re-fetches with new keys
+      setTimeout(() => { window.location.href = "/?fresh=1"; }, 800);
     } catch (e: any) {
       setError(e.message);
+      toast("error", e.message);
     } finally {
       setSaving(false);
     }
-  }, [values]);
+  }, [values, toast]);
 
   const handleClear = useCallback(
     async (key: string) => {
@@ -116,16 +124,35 @@ export default function SettingsPage() {
           delete next[key];
           return next;
         });
+        toast("info", "Key removed");
       } catch (e: any) {
         setError(e.message);
+        toast("error", e.message);
       } finally {
         setSaving(false);
       }
     },
-    []
+    [toast]
   );
 
   const hasChanges = Object.values(values).some((v) => v !== "");
+
+  const handleToggleNotification = useCallback(async (key: keyof NotificationPrefs) => {
+    const current = data?.notifications?.[key] !== false;
+    const newValue = !current;
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notifications: { [key]: newValue } }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to update");
+      setData((prev) => prev ? { ...prev, notifications: json.notifications } : prev);
+    } catch (e: any) {
+      toast("error", e.message);
+    }
+  }, [data, toast]);
 
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-8">
@@ -220,6 +247,34 @@ export default function SettingsPage() {
         })}
       </div>
 
+      {/* Desktop Notifications */}
+      <div className="mt-8 pt-6 border-t border-border">
+        <h2 className="text-sm font-medium text-text-primary mb-1">Desktop Notifications</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          macOS notifications shown when the window is not focused. In-app toasts are always enabled.
+        </p>
+
+        <div className="space-y-3">
+          {([
+            { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
+            { key: "syncErrors" as const, label: "Sync errors", description: "When API calls to Linear, GitHub, or Cursor fail" },
+          ]).map(({ key, label, description }) => (
+            <label key={key} className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data?.notifications?.[key] !== false}
+                onChange={() => handleToggleNotification(key)}
+                className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+              />
+              <div>
+                <span className="text-sm text-text-primary">{label}</span>
+                <p className="text-xs text-text-tertiary">{description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div className="mt-8 flex items-center gap-3">
         <button
           onClick={handleSave}
@@ -228,9 +283,6 @@ export default function SettingsPage() {
         >
           {saving ? "Saving..." : "Save"}
         </button>
-        {saved && (
-          <span className="text-sm text-status-green">Saved</span>
-        )}
         <a
           href="/"
           className="text-sm text-text-tertiary hover:text-text-secondary transition-colors ml-auto"

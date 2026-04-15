@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, nativeImage, Menu, Tray } from 'electron'
 import { join } from 'path'
 import http from 'http'
 import zlib from 'zlib'
+import { notifyNewReviews } from './notifications'
 
 import { DEV_PORT } from './constants'
 
@@ -316,6 +317,9 @@ export async function refreshTrayData(): Promise<void> {
     cachedItems = items
     cachedReviewItems = reviewItems
     rebuildTrayMenu()
+    // Desktop notifications for new review requests
+    const nonDraftReviews = reviewItems.filter(r => !r.pr.draft)
+    notifyNewReviews(nonDraftReviews)
   } catch {
     // keep cached data
   }

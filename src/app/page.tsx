@@ -7,6 +7,7 @@ import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
+import { useToast } from "@/components/Toast";
 
 const CLOSED_PR_ICON_PATH = "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
 
@@ -491,6 +492,7 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
 function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () => void }) {
   const [state, setState] = useState<"idle" | "prompting" | "creating" | "done" | "error">("idle");
   const [error, setError] = useState("");
+  const { toast } = useToast();
 
   async function handleCreate() {
     const pr = item.prs[0]!;
@@ -520,6 +522,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
     } catch (e: any) {
       setState("error");
       setError(e.message);
+      toast("error", `Failed to create agent: ${e.message}`);
     }
   }
 
@@ -1239,7 +1242,16 @@ function useWorkItems(intervalMs = 300000) {
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
   useEffect(() => {
-    doFetch(false);
+    // If arriving with ?fresh=1 (e.g. after saving settings), force a bypass
+    const isFresh = new URLSearchParams(window.location.search).get("fresh") === "1";
+    doFetch(isFresh);
+    if (isFresh) {
+      // Clean up the URL param
+      const params = new URLSearchParams(window.location.search);
+      params.delete("fresh");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : "/");
+    }
     const id = setInterval(() => doFetch(false), intervalMs);
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
@@ -1583,7 +1595,31 @@ function BlockerTags({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag, removeTag } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  const { toast } = useToast();
+
+  // Toast wrappers for tag actions
+  const addTag = useCallback((itemId: string, tag: string) => {
+    rawAddTag(itemId, tag);
+    toast("success", `Tag "${tag}" added`);
+  }, [rawAddTag, toast]);
+
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    rawRemoveTag(itemId, tag);
+    toast("info", `Tag "${tag}" removed`);
+  }, [rawRemoveTag, toast]);
+
+  // Toast for status changes
+  const handleStatusChanged = useCallback((issueIdentifier: string, newStatus: string) => {
+    updateItemStatus(issueIdentifier, newStatus);
+    toast("success", `${issueIdentifier} → ${newStatus}`);
+  }, [updateItemStatus, toast]);
+
+  // Toast for agent creation
+  const handleAgentCreated = useCallback(() => {
+    toast("success", "Cursor agent created");
+    refreshAll();
+  }, [toast, refreshAll]);
 
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
@@ -1926,13 +1962,13 @@ function Home() {
             dimmed={false}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
-            onAgentCreated={refreshAll}
+            onAgentCreated={handleAgentCreated}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
             allTags={allTags}
             onAddTag={addTag}
             onRemoveTag={removeTag}
-            onStatusChanged={updateItemStatus}
+            onStatusChanged={handleStatusChanged}
           />
           {displayItems.length === 0 && !anyLoading && (
             <div className="text-center py-16 space-y-3">

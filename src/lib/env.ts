@@ -1,17 +1,16 @@
-import { getConfig, type AppConfig } from "@/lib/config";
+import { getConfig, type AppConfig, SECRET_KEYS } from "@/lib/config";
 
 let cached: AppConfig | null = null;
 let cacheTime = 0;
-const CACHE_TTL = 10_000; // re-read config file at most every 10s
+const CACHE_TTL = 2_000; // re-read config file frequently to pick up settings changes
 
 export function invalidateEnvCache(): void {
   cached = null;
   cacheTime = 0;
 }
 
-type StringKeys = "GITHUB_TOKEN" | "LINEAR_API_KEY" | "CURSOR_API_KEY";
 
-export function getEnv(key: StringKeys): string | undefined {
+export function getEnv(key: (typeof SECRET_KEYS)[number]): string | undefined {
   // process.env takes priority
   const envVal = process.env[key];
   if (envVal) return envVal;

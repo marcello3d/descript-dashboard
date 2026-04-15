@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StatusIcon } from "./LinearStatus";
+import { useToast } from "./Toast";
 import type { LinearIssue } from "@/types";
 
 interface WorkflowState {
@@ -35,6 +36,7 @@ export default function LinearStatusDropdown({
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   const fetchStates = useCallback(async () => {
     if (states) return; // already fetched
@@ -47,10 +49,11 @@ export default function LinearStatusDropdown({
       setStates(data.states);
     } catch (e: any) {
       setError(e.message);
+      toast("error", e.message);
     } finally {
       setLoading(false);
     }
-  }, [issue.identifier, states]);
+  }, [issue.identifier, states, toast]);
 
   const handleToggle = useCallback(
     (e: React.MouseEvent) => {
@@ -86,11 +89,12 @@ export default function LinearStatusDropdown({
         setOpen(false);
       } catch (e: any) {
         setError(e.message);
+        toast("error", e.message);
       } finally {
         setUpdating(false);
       }
     },
-    [issue.identifier, issue.status, onStatusChanged]
+    [issue.identifier, issue.status, onStatusChanged, toast]
   );
 
   // Close on outside click

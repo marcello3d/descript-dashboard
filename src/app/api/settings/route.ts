@@ -1,6 +1,13 @@
 import { getConfig, setConfig, maskKey, type AppConfig } from "@/lib/config";
 import { invalidateEnvCache } from "@/lib/env";
 
+function notificationPrefs(config: AppConfig) {
+  return {
+    reviewRequests: config.notifications?.reviewRequests !== false,
+    syncErrors: config.notifications?.syncErrors !== false,
+  };
+}
+
 export async function GET() {
   const config = getConfig();
   return Response.json({
@@ -14,6 +21,7 @@ export async function GET() {
       LINEAR_API_KEY: !!process.env.LINEAR_API_KEY,
       CURSOR_API_KEY: !!process.env.CURSOR_API_KEY,
     },
+    notifications: notificationPrefs(config),
   });
 }
 
@@ -29,6 +37,15 @@ export async function POST(request: Request) {
       updates[key] = typeof body[key] === "string" ? body[key] : undefined;
     }
   }
+  if (body.notifications && typeof body.notifications === "object") {
+    updates.notifications = {};
+    if (typeof body.notifications.reviewRequests === "boolean") {
+      updates.notifications.reviewRequests = body.notifications.reviewRequests;
+    }
+    if (typeof body.notifications.syncErrors === "boolean") {
+      updates.notifications.syncErrors = body.notifications.syncErrors;
+    }
+  }
 
   try {
     const config = setConfig(updates);
@@ -39,6 +56,7 @@ export async function POST(request: Request) {
         LINEAR_API_KEY: { set: !!config.LINEAR_API_KEY, masked: maskKey(config.LINEAR_API_KEY) },
         CURSOR_API_KEY: { set: !!config.CURSOR_API_KEY, masked: maskKey(config.CURSOR_API_KEY) },
       },
+      notifications: notificationPrefs(config),
     });
   } catch {
     return Response.json({ error: "Failed to update settings" }, { status: 500 });
