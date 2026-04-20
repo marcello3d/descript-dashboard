@@ -3,7 +3,9 @@ import { invalidateEnvCache } from "@/lib/env";
 
 function notificationPrefs(config: AppConfig) {
   return {
+    enabled: config.notifications?.enabled !== false,
     reviewRequests: config.notifications?.reviewRequests !== false,
+    prReviews: config.notifications?.prReviews !== false,
     syncErrors: config.notifications?.syncErrors !== false,
   };
 }
@@ -41,6 +43,12 @@ export async function POST(request: Request) {
     updates.notifications = {};
     if (typeof body.notifications.reviewRequests === "boolean") {
       updates.notifications.reviewRequests = body.notifications.reviewRequests;
+    }
+    if (typeof body.notifications.enabled === "boolean") {
+      updates.notifications.enabled = body.notifications.enabled;
+    }
+    if (typeof body.notifications.prReviews === "boolean") {
+      updates.notifications.prReviews = body.notifications.prReviews;
     }
     if (typeof body.notifications.syncErrors === "boolean") {
       updates.notifications.syncErrors = body.notifications.syncErrors;

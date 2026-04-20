@@ -2,7 +2,9 @@ import fs from "fs";
 import path from "path";
 
 export interface NotificationPrefs {
+  enabled?: boolean;
   reviewRequests?: boolean;
+  prReviews?: boolean;
   syncErrors?: boolean;
 }
 
@@ -32,8 +34,14 @@ export function getConfig(): AppConfig {
     }
     if (parsed.notifications && typeof parsed.notifications === "object") {
       config.notifications = {};
+      if (typeof parsed.notifications.enabled === "boolean") {
+        config.notifications.enabled = parsed.notifications.enabled;
+      }
       if (typeof parsed.notifications.reviewRequests === "boolean") {
         config.notifications.reviewRequests = parsed.notifications.reviewRequests;
+      }
+      if (typeof parsed.notifications.prReviews === "boolean") {
+        config.notifications.prReviews = parsed.notifications.prReviews;
       }
       if (typeof parsed.notifications.syncErrors === "boolean") {
         config.notifications.syncErrors = parsed.notifications.syncErrors;

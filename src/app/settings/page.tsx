@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { SiLinear, SiGithub } from "react-icons/si";
 import { useToast } from "@/components/Toast";
+import { getPermissionState, requestPermission } from "@/lib/notifications";
 
 function CursorIcon({ className }: { className?: string }) {
   return (
@@ -18,7 +19,9 @@ interface KeyInfo {
 }
 
 interface NotificationPrefs {
+  enabled: boolean;
   reviewRequests: boolean;
+  prReviews: boolean;
   syncErrors: boolean;
 }
 
@@ -54,6 +57,93 @@ const KEY_CONFIG = [
     placeholder: "cur_...",
   },
 ];
+
+function NotificationSettings({ data, onToggle }: { data: SettingsData | null; onToggle: (key: keyof NotificationPrefs) => void }) {
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setPermission(getPermissionState());
+  }, []);
+
+  const handleRequestPermission = useCallback(async () => {
+    const result = await requestPermission();
+    setPermission(result);
+    if (result === "granted") {
+      toast("success", "Notifications enabled");
+    } else if (result === "denied") {
+      toast("error", "Notifications blocked — check your browser settings");
+    }
+  }, [toast]);
+
+  const supported = permission !== "unsupported";
+  const granted = permission === "granted";
+  const denied = permission === "denied";
+
+  return (
+    <div className="mt-8 pt-6 border-t border-border">
+      <h2 className="text-sm font-medium text-text-primary mb-1">Desktop Notifications</h2>
+      <p className="text-xs text-text-tertiary mb-4">
+        Browser notifications shown when the window is not focused. In-app toasts are always enabled.
+      </p>
+
+      {!supported && (
+        <p className="text-xs text-text-muted">Notifications are not supported in this browser.</p>
+      )}
+
+      {supported && !granted && (
+        <div className="mb-4">
+          {denied ? (
+            <p className="text-xs text-text-muted">
+              Notifications are blocked. To re-enable, reset the permission in your browser&apos;s site settings.
+            </p>
+          ) : (
+            <button
+              onClick={handleRequestPermission}
+              className="px-3 py-1.5 text-sm font-medium rounded-md bg-text-primary text-background hover:opacity-90 transition-opacity"
+            >
+              Enable notifications
+            </button>
+          )}
+        </div>
+      )}
+
+      {supported && granted && (
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={data?.notifications?.enabled !== false}
+              onChange={() => onToggle("enabled")}
+              className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+            />
+            <span className="text-sm font-medium text-text-primary">Enable desktop notifications</span>
+          </label>
+
+          <div className={`space-y-3 pl-7 ${data?.notifications?.enabled === false ? "opacity-40 pointer-events-none" : ""}`}>
+            {([
+              { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
+              { key: "prReviews" as const, label: "PR approved / changes requested", description: "When one of your PRs is approved or has changes requested" },
+            ]).map(({ key, label, description }) => (
+              <label key={key} className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data?.notifications?.[key] !== false}
+                  onChange={() => onToggle(key)}
+                  className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+                />
+                <div>
+                  <span className="text-sm text-text-primary">{label}</span>
+                  <p className="text-xs text-text-tertiary">{description}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
@@ -248,32 +338,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Desktop Notifications */}
-      <div className="mt-8 pt-6 border-t border-border">
-        <h2 className="text-sm font-medium text-text-primary mb-1">Desktop Notifications</h2>
-        <p className="text-xs text-text-tertiary mb-4">
-          macOS notifications shown when the window is not focused. In-app toasts are always enabled.
-        </p>
-
-        <div className="space-y-3">
-          {([
-            { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
-            { key: "syncErrors" as const, label: "Sync errors", description: "When API calls to Linear, GitHub, or Cursor fail" },
-          ]).map(({ key, label, description }) => (
-            <label key={key} className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data?.notifications?.[key] !== false}
-                onChange={() => handleToggleNotification(key)}
-                className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
-              />
-              <div>
-                <span className="text-sm text-text-primary">{label}</span>
-                <p className="text-xs text-text-tertiary">{description}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
+      <NotificationSettings data={data} onToggle={handleToggleNotification} />
 
       <div className="mt-8 flex items-center gap-3">
         <button
@@ -289,6 +354,24 @@ export default function SettingsPage() {
         >
           Back to Dashboard
         </a>
+      </div>
+
+      {/* Danger Zone */}
+      <div className="mt-8 pt-6 border-t border-border">
+        <h2 className="text-sm font-medium text-text-primary mb-1">Danger Zone</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          This clears the local cache and all work item data. API keys are not affected.
+        </p>
+        <button
+          onClick={async () => {
+            if (!window.confirm("Reset all local data? This clears the cache and work items.")) return;
+            await fetch("/api/reset", { method: "DELETE" });
+            window.location.href = "/";
+          }}
+          className="text-sm font-medium text-status-red hover:text-red-400 transition-colors"
+        >
+          Delete local data
+        </button>
       </div>
     </div>
   );

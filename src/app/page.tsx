@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
+import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
 import { useToast } from "@/components/Toast";
@@ -227,7 +228,7 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-0.5">
       <span className="inline-flex items-center gap-1">
         <a
           href={pr.url}
@@ -258,7 +259,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
         <CopyBranchButton branch={pr.branch} />
       </span>
       {pr.bugBotThreadCount > 0 && (
-        <span className="text-xs text-red-500 font-medium">
+        <span className="text-xs text-red-500 font-medium ml-4">
           {pr.bugBotThreadCount} bug bot {pr.bugBotThreadCount === 1 ? "issue" : "issues"}
         </span>
       )}
@@ -1191,6 +1192,9 @@ function useWorkItems(intervalMs = 300000) {
     if (json.done) {
       setProgress(null);
       setLastUpdated(Date.now());
+      const nonDraftReviews = (json.reviewItems ?? []).filter((r: ReviewItem) => !r.pr.draft);
+      notifyNewReviews(nonDraftReviews);
+      notifyPrReviewChanges(json.items ?? []);
     }
   }, []);
 
@@ -1242,6 +1246,7 @@ function useWorkItems(intervalMs = 300000) {
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
   useEffect(() => {
+    registerServiceWorker();
     // If arriving with ?fresh=1 (e.g. after saving settings), force a bypass
     const isFresh = new URLSearchParams(window.location.search).get("fresh") === "1";
     doFetch(isFresh);
@@ -1594,6 +1599,51 @@ function BlockerTags({
   );
 }
 
+function NotificationBell() {
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("granted");
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setPermission(getPermissionState());
+  }, []);
+
+  // Don't render if already granted or unsupported
+  if (permission === "granted" || permission === "unsupported") return null;
+
+  const handleClick = async () => {
+    if (permission === "denied") {
+      toast("error", "Notifications blocked — check browser site settings to re-enable");
+      return;
+    }
+    const result = await requestPermission();
+    setPermission(result);
+    if (result === "granted") {
+      toast("success", "Notifications enabled");
+    } else if (result === "denied") {
+      toast("error", "Notifications blocked");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`${iconButtonClass} relative`}
+      title={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
+      aria-label={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+      {permission === "default" && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-status-blue rounded-full" />
+      )}
+      {permission === "denied" && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-status-red rounded-full" />
+      )}
+    </button>
+  );
+}
+
 function Home() {
   const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   const { toast } = useToast();
@@ -1877,32 +1927,7 @@ function Home() {
         {rateLimitInfos.length > 0 && (
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
-        <button
-          onClick={async () => {
-            if (!window.confirm("Reset all data? This clears the cache and work items.")) return;
-            await fetch("/api/reset", { method: "DELETE" });
-            window.location.reload();
-          }}
-          className={iconButtonClass}
-          title="Reset all data"
-          aria-label="Reset all data"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        </button>
         <div className="flex-1" />
-        <a
-          href="/settings"
-          className={iconButtonClass}
-          title="Settings"
-          aria-label="Settings"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </a>
         {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
@@ -1917,6 +1942,18 @@ function Home() {
           />
         )}
         {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
+        <NotificationBell />
+        <a
+          href="/settings"
+          className={iconButtonClass}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </a>
         </div>
         <div className="text-sm text-text-tertiary mt-1">
           {isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
