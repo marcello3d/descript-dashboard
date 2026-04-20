@@ -355,6 +355,24 @@ export default function SettingsPage() {
           Back to Dashboard
         </a>
       </div>
+
+      {/* Danger Zone */}
+      <div className="mt-8 pt-6 border-t border-border">
+        <h2 className="text-sm font-medium text-text-primary mb-1">Danger Zone</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          This clears the local cache and all work item data. API keys are not affected.
+        </p>
+        <button
+          onClick={async () => {
+            if (!window.confirm("Reset all local data? This clears the cache and work items.")) return;
+            await fetch("/api/reset", { method: "DELETE" });
+            window.location.href = "/";
+          }}
+          className="text-sm font-medium text-status-red hover:text-red-400 transition-colors"
+        >
+          Delete local data
+        </button>
+      </div>
     </div>
   );
 }
