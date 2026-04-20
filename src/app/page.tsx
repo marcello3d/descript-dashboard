@@ -1904,7 +1904,7 @@ function Home() {
         </a>
       </div>
       <header className="mb-1 sticky top-[var(--titlebar-height,0px)] z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 pr-16">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
