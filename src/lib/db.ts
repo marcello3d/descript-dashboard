@@ -118,18 +118,49 @@ export function upsertWorkItems(items: WorkItem[]): void {
     "INSERT OR REPLACE INTO work_items (id, anchor, title, linear_data, prs_data, agents_data, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
   const now = Date.now();
+  const currentAnchors = new Set(items.map(workItemAnchor));
+
+  // Build a map of PR URL -> new anchor, for migrating tags from stale orphans
+  const prUrlToNewAnchor = new Map<string, string>();
+  for (const item of items) {
+    const anchor = workItemAnchor(item);
+    for (const pr of item.prs) prUrlToNewAnchor.set(pr.url, anchor);
+  }
+
   const tx = d.transaction(() => {
+    // Find stale items and migrate their tags before deleting
+    const allRows = d.prepare("SELECT anchor, tags, prs_data FROM work_items").all() as { anchor: string; tags: string; prs_data: string }[];
+    const tagsToMigrate = new Map<string, string[]>(); // new anchor -> tags to add
+    for (const row of allRows) {
+      if (currentAnchors.has(row.anchor)) continue;
+      // Migrate tags from stale item to the new item that contains its PRs
+      const oldTags: string[] = JSON.parse(row.tags || "[]");
+      if (oldTags.length > 0) {
+        const oldPrs: { url: string }[] = JSON.parse(row.prs_data || "[]");
+        for (const pr of oldPrs) {
+          const newAnchor = prUrlToNewAnchor.get(pr.url);
+          if (newAnchor) {
+            tagsToMigrate.set(newAnchor, [...(tagsToMigrate.get(newAnchor) ?? []), ...oldTags]);
+            break;
+          }
+        }
+      }
+      d.prepare("DELETE FROM work_items WHERE anchor = ?").run(row.anchor);
+    }
+
     for (const item of items) {
       const anchor = workItemAnchor(item);
       const existing = findByAnchor.get(anchor) as { id: string; created_at: number; tags: string } | undefined;
       const id = existing?.id ?? crypto.randomUUID();
       const createdAt = existing?.created_at ?? now;
-      const tags = existing?.tags ?? "[]";
+      const existingTags: string[] = JSON.parse(existing?.tags ?? "[]");
+      const migratedTags = tagsToMigrate.get(anchor) ?? [];
+      const mergedTags = [...new Set([...existingTags, ...migratedTags])];
       insert.run(
         id, anchor, item.title,
         item.linear ? JSON.stringify(item.linear) : null,
         JSON.stringify(item.prs), JSON.stringify(item.agents),
-        tags, createdAt, now,
+        JSON.stringify(mergedTags), createdAt, now,
       );
     }
   });
