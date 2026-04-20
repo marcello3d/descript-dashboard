@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
-import { registerServiceWorker, notifyNewReviews, getPermissionState, requestPermission } from "@/lib/notifications";
+import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
 import { useToast } from "@/components/Toast";
@@ -1194,6 +1194,7 @@ function useWorkItems(intervalMs = 300000) {
       setLastUpdated(Date.now());
       const nonDraftReviews = (json.reviewItems ?? []).filter((r: ReviewItem) => !r.pr.draft);
       notifyNewReviews(nonDraftReviews);
+      notifyPrReviewChanges(json.items ?? []);
     }
   }, []);
 

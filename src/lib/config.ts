@@ -3,6 +3,7 @@ import path from "path";
 
 export interface NotificationPrefs {
   reviewRequests?: boolean;
+  prReviews?: boolean;
   syncErrors?: boolean;
 }
 
@@ -34,6 +35,9 @@ export function getConfig(): AppConfig {
       config.notifications = {};
       if (typeof parsed.notifications.reviewRequests === "boolean") {
         config.notifications.reviewRequests = parsed.notifications.reviewRequests;
+      }
+      if (typeof parsed.notifications.prReviews === "boolean") {
+        config.notifications.prReviews = parsed.notifications.prReviews;
       }
       if (typeof parsed.notifications.syncErrors === "boolean") {
         config.notifications.syncErrors = parsed.notifications.syncErrors;

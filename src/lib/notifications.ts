@@ -1,8 +1,10 @@
 "use client";
 
-import type { ReviewItem } from "@/types";
+import type { ReviewItem, WorkItem } from "@/types";
 
 const seenReviewIds = new Set<string>();
+// Track PR review decisions by PR URL to detect changes
+const knownPrDecisions = new Map<string, string | null>();
 let initialized = false;
 
 export function registerServiceWorker(): void {
@@ -22,13 +24,16 @@ export async function requestPermission(): Promise<NotificationPermission | "uns
   return result;
 }
 
-async function fetchNotificationPrefs(): Promise<{ reviewRequests: boolean }> {
+async function fetchNotificationPrefs(): Promise<{ reviewRequests: boolean; prReviews: boolean }> {
   try {
     const res = await fetch("/api/settings");
     const json = await res.json();
-    return { reviewRequests: json.notifications?.reviewRequests !== false };
+    return {
+      reviewRequests: json.notifications?.reviewRequests !== false,
+      prReviews: json.notifications?.prReviews !== false,
+    };
   } catch {
-    return { reviewRequests: true };
+    return { reviewRequests: true, prReviews: true };
   }
 }
 
@@ -81,6 +86,60 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
         .join(", ") +
         (newReviews.length > 3 ? ` +${newReviews.length - 3} more` : ""),
     );
+  }
+}
+
+export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
+  // Collect all open PRs with their review decisions
+  const currentPrs = new Map<string, { decision: string | null; title: string; identifier?: string }>();
+  for (const item of items) {
+    for (const pr of item.prs) {
+      if (pr.merged || pr.closed) continue;
+      currentPrs.set(pr.url, {
+        decision: pr.reviewDecision,
+        title: pr.title,
+        identifier: item.linear?.identifier,
+      });
+    }
+  }
+
+  if (!initialized) {
+    // Seed on first load
+    for (const [url, { decision }] of currentPrs) {
+      knownPrDecisions.set(url, decision);
+    }
+    return;
+  }
+
+  if (getPermissionState() !== "granted" || document.hasFocus()) {
+    for (const [url, { decision }] of currentPrs) {
+      knownPrDecisions.set(url, decision);
+    }
+    return;
+  }
+
+  const prefs = await fetchNotificationPrefs();
+  if (!prefs.prReviews) {
+    for (const [url, { decision }] of currentPrs) {
+      knownPrDecisions.set(url, decision);
+    }
+    return;
+  }
+
+  for (const [url, { decision, title, identifier }] of currentPrs) {
+    const prev = knownPrDecisions.get(url);
+    knownPrDecisions.set(url, decision);
+
+    // Only notify on transitions to APPROVED or CHANGES_REQUESTED
+    if (prev === decision) continue;
+    if (prev === undefined) continue; // new PR, not a status change
+
+    const prefix = identifier ? `${identifier}: ` : "";
+    if (decision === "APPROVED") {
+      showNotification("PR approved", `${prefix}${title}`);
+    } else if (decision === "CHANGES_REQUESTED") {
+      showNotification("Changes requested", `${prefix}${title}`);
+    }
   }
 }
 

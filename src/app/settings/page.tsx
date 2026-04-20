@@ -20,6 +20,7 @@ interface KeyInfo {
 
 interface NotificationPrefs {
   reviewRequests: boolean;
+  prReviews: boolean;
   syncErrors: boolean;
 }
 
@@ -110,7 +111,7 @@ function NotificationSettings({ data, onToggle }: { data: SettingsData | null; o
         <div className="space-y-3">
           {([
             { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
-            { key: "syncErrors" as const, label: "Sync errors", description: "When API calls to Linear, GitHub, or Cursor fail" },
+            { key: "prReviews" as const, label: "PR approved / changes requested", description: "When one of your PRs is approved or has changes requested" },
           ]).map(({ key, label, description }) => (
             <label key={key} className="flex items-start gap-3 cursor-pointer">
               <input
