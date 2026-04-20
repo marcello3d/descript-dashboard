@@ -3,6 +3,7 @@ export interface LinearIssue {
   title: string;
   identifier: string;
   status: string;
+  statusType: string; // Linear workflow state type: triage, backlog, unstarted, started, completed, canceled
   priority: number;
   url: string;
   updatedAt: string;

@@ -829,9 +829,9 @@ function isItemClosed(item: WorkItem): boolean {
   if (hasActiveAgent) return false;
   const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
   if (cursorOnly) return true;
-  const status = item.linear?.status.toLowerCase();
-  if (status === "canceled" || status === "cancelled" || status === "done" || status === "completed") return true;
-  const isVerify = status === "verify";
+  const statusType = item.linear?.statusType;
+  if (statusType === "completed" || statusType === "canceled") return true;
+  const isVerify = item.linear?.status.toLowerCase() === "verify";
   const openPrs = item.prs.filter(pr => !pr.closed && !pr.merged);
   const hasMerged = item.prs.some(pr => pr.merged);
   if (hasMerged && openPrs.length === 0 && !isVerify) return true;

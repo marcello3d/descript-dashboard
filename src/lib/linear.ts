@@ -7,6 +7,7 @@ export interface RawLinearIssue {
   title: string;
   identifier: string;
   statusName: string;
+  statusType: string;
   priority: number;
   url: string;
   updatedAt: string;
@@ -27,6 +28,7 @@ async function resolveIssue(issue: any): Promise<RawLinearIssue> {
     title: issue.title,
     identifier: issue.identifier,
     statusName: state?.name ?? "Unknown",
+    statusType: state?.type ?? "unstarted",
     priority: issue.priority,
     url: issue.url,
     updatedAt: issue.updatedAt.toISOString(),
@@ -47,6 +49,7 @@ export function transformIssue(raw: RawLinearIssue): LinearIssue {
     title: raw.title,
     identifier: raw.identifier,
     status: raw.statusName,
+    statusType: raw.statusType ?? "unstarted",
     priority: raw.priority,
     url: raw.url,
     updatedAt: raw.updatedAt,
