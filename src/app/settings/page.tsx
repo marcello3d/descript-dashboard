@@ -117,7 +117,7 @@ function NotificationSettings({ data, onToggle }: { data: SettingsData | null; o
               onChange={() => onToggle("enabled")}
               className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
             />
-            <span className="text-sm font-medium text-text-primary">Enable all notifications</span>
+            <span className="text-sm font-medium text-text-primary">Enable desktop notifications</span>
           </label>
 
           <div className={`space-y-3 pl-7 ${data?.notifications?.enabled === false ? "opacity-40 pointer-events-none" : ""}`}>
