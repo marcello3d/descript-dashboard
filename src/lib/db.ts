@@ -154,7 +154,15 @@ export function upsertReviewItems(items: ReviewItem[]): void {
     "INSERT OR REPLACE INTO review_items (id, anchor, pr_data, linear_data, request_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
   const now = Date.now();
+  const currentAnchors = new Set(items.map(reviewItemAnchor));
   const tx = d.transaction(() => {
+    // Delete review items no longer in the current set
+    const allAnchors = d.prepare("SELECT anchor FROM review_items").all() as { anchor: string }[];
+    for (const { anchor } of allAnchors) {
+      if (!currentAnchors.has(anchor)) {
+        d.prepare("DELETE FROM review_items WHERE anchor = ?").run(anchor);
+      }
+    }
     for (const item of items) {
       const anchor = reviewItemAnchor(item);
       const existing = findByAnchor.get(anchor) as { id: string; created_at: number } | undefined;

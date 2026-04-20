@@ -85,7 +85,9 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
     }));
   }
 
+  let fetchedFreshReviews = false;
   if (force || needsSync("github_reviews")) {
+    fetchedFreshReviews = true;
     fetches.push(fetchGitHubReviews(force, errors).then(r => {
       rawReviewPrs = r.raw;
       if (r.viewerLogin) viewerLogin = r.viewerLogin;
@@ -234,7 +236,7 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   const reviewItems = buildReviewItems(allReviewPrs, allReviewIssues, viewerLogin);
 
   if (finalWorkItems.length > 0) upsertWorkItems(finalWorkItems);
-  if (reviewItems.length > 0) upsertReviewItems(reviewItems);
+  if (fetchedFreshReviews) upsertReviewItems(reviewItems);
 
   // Mark synced services
   if (rawLinear.length > 0) setSyncStatus("linear", TTL_LINEAR, { rateLimitData: rateLimits.linear });
