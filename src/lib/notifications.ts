@@ -24,16 +24,17 @@ export async function requestPermission(): Promise<NotificationPermission | "uns
   return result;
 }
 
-async function fetchNotificationPrefs(): Promise<{ reviewRequests: boolean; prReviews: boolean }> {
+async function fetchNotificationPrefs(): Promise<{ enabled: boolean; reviewRequests: boolean; prReviews: boolean }> {
   try {
     const res = await fetch("/api/settings");
     const json = await res.json();
     return {
+      enabled: json.notifications?.enabled !== false,
       reviewRequests: json.notifications?.reviewRequests !== false,
       prReviews: json.notifications?.prReviews !== false,
     };
   } catch {
-    return { reviewRequests: true, prReviews: true };
+    return { enabled: true, reviewRequests: true, prReviews: true };
   }
 }
 
@@ -60,7 +61,7 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
   }
 
   const prefs = await fetchNotificationPrefs();
-  if (!prefs.reviewRequests) {
+  if (!prefs.enabled || !prefs.reviewRequests) {
     for (const r of reviews) seenReviewIds.add(r.id);
     return;
   }
@@ -119,7 +120,7 @@ export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
   }
 
   const prefs = await fetchNotificationPrefs();
-  if (!prefs.prReviews) {
+  if (!prefs.enabled || !prefs.prReviews) {
     for (const [url, { decision }] of currentPrs) {
       knownPrDecisions.set(url, decision);
     }

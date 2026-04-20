@@ -19,6 +19,7 @@ interface KeyInfo {
 }
 
 interface NotificationPrefs {
+  enabled: boolean;
   reviewRequests: boolean;
   prReviews: boolean;
   syncErrors: boolean;
@@ -109,23 +110,35 @@ function NotificationSettings({ data, onToggle }: { data: SettingsData | null; o
 
       {supported && granted && (
         <div className="space-y-3">
-          {([
-            { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
-            { key: "prReviews" as const, label: "PR approved / changes requested", description: "When one of your PRs is approved or has changes requested" },
-          ]).map(({ key, label, description }) => (
-            <label key={key} className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={data?.notifications?.[key] !== false}
-                onChange={() => onToggle(key)}
-                className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
-              />
-              <div>
-                <span className="text-sm text-text-primary">{label}</span>
-                <p className="text-xs text-text-tertiary">{description}</p>
-              </div>
-            </label>
-          ))}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={data?.notifications?.enabled !== false}
+              onChange={() => onToggle("enabled")}
+              className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+            />
+            <span className="text-sm font-medium text-text-primary">Enable all notifications</span>
+          </label>
+
+          <div className={`space-y-3 pl-7 ${data?.notifications?.enabled === false ? "opacity-40 pointer-events-none" : ""}`}>
+            {([
+              { key: "reviewRequests" as const, label: "New review requests", description: "When a PR is assigned to you for review" },
+              { key: "prReviews" as const, label: "PR approved / changes requested", description: "When one of your PRs is approved or has changes requested" },
+            ]).map(({ key, label, description }) => (
+              <label key={key} className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data?.notifications?.[key] !== false}
+                  onChange={() => onToggle(key)}
+                  className="mt-0.5 w-4 h-4 accent-status-green cursor-pointer"
+                />
+                <div>
+                  <span className="text-sm text-text-primary">{label}</span>
+                  <p className="text-xs text-text-tertiary">{description}</p>
+                </div>
+              </label>
+            ))}
+          </div>
         </div>
       )}
     </div>
