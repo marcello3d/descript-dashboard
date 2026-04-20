@@ -1376,10 +1376,10 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
         onClick={() => setOpen(!open)}
         className="text-xs text-text-tertiary hover:text-text-secondary transition-colors px-1.5 py-0.5 rounded hover:bg-surface-hover"
       >
-        {label}
+        ({label})
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[140px]">
+        <div className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[140px]">
           {[{ value: "all", label: "All repos" }, ...repos.map(r => ({ value: r, label: r }))].map(opt => (
             <button
               key={opt.value}
@@ -1941,7 +1941,6 @@ function Home() {
             onChange={(v) => setSort(v as SortMode)}
           />
         )}
-        {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
         <NotificationBell />
         <a
           href="/settings"
@@ -1955,7 +1954,8 @@ function Home() {
           </svg>
         </a>
         </div>
-        <div className="text-sm text-text-tertiary mt-1">
+        <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
+          {repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
           {isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
