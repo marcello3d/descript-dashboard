@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import express from "express";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 
 import { sync } from "@/lib/sync";
@@ -15,10 +14,8 @@ import { invalidateCache } from "@/lib/cache";
 import { fetchWorkflowStatesForIssue, updateIssueStatus } from "@/lib/linear";
 import { createAgent, transformAgent } from "@/lib/cursor";
 
-const PORT = 4081;
-
 // ---------------------------------------------------------------------------
-// Per-session MCP server factory (SDK requires one McpServer per transport)
+// Per-request MCP server factory (SDK requires one McpServer per transport)
 // ---------------------------------------------------------------------------
 
 function createMcpServer(): McpServer {
@@ -185,18 +182,23 @@ function createMcpServer(): McpServer {
 // Stateless HTTP Transport — new server + transport per request
 // ---------------------------------------------------------------------------
 
-const app = express();
-app.use(express.json());
-
-app.post("/mcp", async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({
+async function handleMcpRequest(request: Request): Promise<Response> {
+  const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
   const server = createMcpServer();
   await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
-});
+  return transport.handleRequest(request);
+}
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`MCP server listening on http://localhost:${PORT}/mcp`);
-});
+export async function POST(request: Request) {
+  return handleMcpRequest(request);
+}
+
+export async function GET(request: Request) {
+  return handleMcpRequest(request);
+}
+
+export async function DELETE(request: Request) {
+  return handleMcpRequest(request);
+}

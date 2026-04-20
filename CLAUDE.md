@@ -38,9 +38,9 @@ The `/api/work-items` endpoint streams newline-delimited JSON. Each line is a fu
 - **`cellLink` / `cellLinkFlex`** — clickable cell elements with hover background
 - **`tableRowClass`** — table rows with `group` class (enables `group-hover` for child elements)
 
-### MCP Server (`src/mcp-server.ts`)
+### MCP Server (`src/app/api/mcp/route.ts`)
 
-Standalone Streamable HTTP MCP server on port 4081, reusing the same lib modules and SQLite DB as the Next.js app. Run with `npm run mcp`.
+MCP server hosted as a Next.js API route handler (no separate process). Uses `WebStandardStreamableHTTPServerTransport` in stateless mode.
 
 **Tools:**
 - `get_work_items` `{ fresh?: bool }` — returns `{ items: WorkItem[], errors }` after syncing
@@ -50,12 +50,11 @@ Standalone Streamable HTTP MCP server on port 4081, reusing the same lib modules
 - `get_workflow_states` `{ issueId }` — returns `{ states: [{ id, name, type }] }`
 - `create_cursor_agent` `{ repository, ref, prompt }` — returns `{ agent: CursorAgent }`
 
-MCP endpoint: `http://localhost:4081/mcp` (Streamable HTTP transport, stateful sessions).
+MCP endpoint: `http://localhost:4080/api/mcp` (Streamable HTTP transport, stateless).
 
 ## Debugging
 
 - Dev server: `npm run dev` (port 4080)
-- MCP server: `npm run mcp` (port 4081)
 - Hit the API directly: `curl http://localhost:4080/api/work-items | jq`
 - Bypass cache: `curl http://localhost:4080/api/work-items?fresh=1 | jq`
 - Filter for a specific issue: `curl -s http://localhost:4080/api/work-items | jq '.items[] | select(.id == "MM-34063")'`

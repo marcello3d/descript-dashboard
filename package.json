@@ -4,12 +4,10 @@
   "private": true,
   "main": "./out/main/main.js",
   "scripts": {
-    "dev": "concurrently -n next,mcp -c blue,magenta \"next dev -p 4080 -H 127.0.0.1\" \"npx tsx src/mcp-server.ts\"",
-    "dev:next": "next dev -p 4080 -H 127.0.0.1",
+    "dev": "next dev -p 4080 -H 127.0.0.1",
     "build": "next build",
     "start": "next start -p 4080",
     "lint": "eslint",
-    "mcp": "npx tsx src/mcp-server.ts",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:dev": "npm run electron:build && electron .",
     "electron:dist": "next build --webpack && node scripts/prepare-standalone.js && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
@@ -29,7 +27,13 @@
       "!node_modules"
     ],
     "extraResources": [
-      { "from": ".next/standalone", "to": "standalone", "filter": ["**/*"] }
+      {
+        "from": ".next/standalone",
+        "to": "standalone",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "mac": {
       "target": [
@@ -55,11 +59,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/express": "^5.0.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "concurrently": "^9.2.1",
     "electron": "^33.0.0",
     "electron-builder": "^26.8.1",
     "eslint": "^9",
