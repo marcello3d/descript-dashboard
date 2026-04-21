@@ -58,7 +58,7 @@ export interface RawGitHubPR {
   reviews: { login: string; state: string }[];
   userDisplayName?: string; // resolved from GitHub API, present on review PRs
   requestedReviewers?: string[]; // individual logins requested for review
-  requestedTeams?: string[]; // team slugs requested for review
+  requestedTeams?: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount?: number;
 }
 
@@ -413,7 +413,7 @@ export async function fetchRawReviewRequestedPRs(
             changedFiles: pr.changed_files,
             reviews: [],
             requestedReviewers: (pr.requested_reviewers ?? []).map((r: any) => r.login),
-            requestedTeams: (pr.requested_teams ?? []).map((t: any) => t.slug),
+            requestedTeams: (pr.requested_teams ?? []).map((t: any) => ({ slug: t.slug, name: t.name ?? t.slug })),
           } satisfies RawGitHubPR;
         } catch {
           return {
@@ -454,12 +454,7 @@ export async function fetchRawReviewRequestedPRs(
     if (name) pr.userDisplayName = name;
   }
 
-  // Get authenticated user login
-  let viewerLogin = "";
-  try {
-    const { data: viewer } = await octokit.rest.users.getAuthenticated();
-    viewerLogin = viewer.login;
-  } catch { /* ignore */ }
+  const viewerLogin = await octokit.rest.users.getAuthenticated().then(r => r.data.login).catch(() => "");
 
   return { prs: allPrs, viewerLogin };
 }

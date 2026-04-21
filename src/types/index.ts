@@ -30,7 +30,7 @@ export interface GitHubPR {
   reviewDecision: string | null; // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null
   checksState: string | null; // SUCCESS, FAILURE, PENDING, ERROR, EXPECTED, or null
   requestedReviewers: string[]; // individual logins requested for review
-  requestedTeams: string[]; // team slugs requested for review
+  requestedTeams: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount: number; // unresolved review threads authored by cursor[bot]
 }
 
@@ -71,3 +71,4 @@ export interface ReviewItem {
   linear?: LinearIssue;
   requestType: "individual" | "team";
 }
+
