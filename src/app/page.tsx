@@ -295,13 +295,19 @@ function CopyBranchButton({ branch }: { branch: string }) {
   );
 }
 
-function SectionHeader({ label, count, colSpan, collapsed, onToggle }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void }) {
+function SectionHeader({ label, count, colSpan, collapsed, onToggle, isDraft }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void; isDraft?: boolean }) {
   return (
     <tr className={sectionHeaderClass}>
       <td colSpan={colSpan} className="pt-4 pb-1 px-2">
-        <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer">
+        <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer inline-flex items-center gap-1.5">
           <span className="inline-block w-4 text-xs">{collapsed ? "▸" : "▾"}</span>
-          {label} <span className="font-normal">({count})</span>
+          {isDraft && (
+            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
+            </svg>
+          )}
+          <span>{isDraft ? `DRAFT: ${label}` : label}</span>
+          <span className="font-normal">({count})</span>
         </button>
       </td>
     </tr>
@@ -394,23 +400,49 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
     const favs: ReviewItem[] = [];
     const directReady: ReviewItem[] = [];
     const directDraft: ReviewItem[] = [];
-    const teamReady: ReviewItem[] = [];
-    const teamDraft: ReviewItem[] = [];
+    // Map from team-set key (sorted slugs joined by "|") → { label, ready, draft }
+    const teamSetGroups = new Map<string, { label: string; ready: ReviewItem[]; draft: ReviewItem[] }>();
+    // Fallback when a team-requested PR has no team data
+    const teamReadyFallback: ReviewItem[] = [];
+    const teamDraftFallback: ReviewItem[] = [];
+
     for (const item of reviewItems) {
       if (favorites.has(item.id)) {
         favs.push(item);
-      } else if (item.requestType === "individual") {
-        (item.pr.draft ? directDraft : directReady).push(item);
-      } else {
-        (item.pr.draft ? teamDraft : teamReady).push(item);
+        continue;
       }
+      if (item.requestType === "individual") {
+        (item.pr.draft ? directDraft : directReady).push(item);
+        continue;
+      }
+      const teams = [...item.pr.requestedTeams].sort((a, b) => a.slug.localeCompare(b.slug));
+      if (teams.length === 0) {
+        (item.pr.draft ? teamDraftFallback : teamReadyFallback).push(item);
+        continue;
+      }
+      const key = teams.map(t => t.slug).join("|");
+      let group = teamSetGroups.get(key);
+      if (!group) {
+        const label = teams.map(t => t.name).join(" + ");
+        group = { label, ready: [], draft: [] };
+        teamSetGroups.set(key, group);
+      }
+      (item.pr.draft ? group.draft : group.ready).push(item);
     }
-    const groups: { label: string; items: ReviewItem[] }[] = [];
+
+    const groups: { label: string; items: ReviewItem[]; isDraft?: boolean }[] = [];
     if (favs.length > 0) groups.push({ label: "Favorites", items: favs });
     if (directReady.length > 0) groups.push({ label: "Individually requested", items: directReady });
-    if (teamReady.length > 0) groups.push({ label: "Team requested", items: teamReady });
-    if (directDraft.length > 0) groups.push({ label: "Individually requested — draft", items: directDraft });
-    if (teamDraft.length > 0) groups.push({ label: "Team requested — draft", items: teamDraft });
+    const sortedTeamGroups = [...teamSetGroups.values()].sort((a, b) => a.label.localeCompare(b.label));
+    for (const g of sortedTeamGroups) {
+      if (g.ready.length > 0) groups.push({ label: `Team: ${g.label}`, items: g.ready });
+    }
+    if (teamReadyFallback.length > 0) groups.push({ label: "Team requested", items: teamReadyFallback });
+    if (directDraft.length > 0) groups.push({ label: "Individually requested", items: directDraft, isDraft: true });
+    for (const g of sortedTeamGroups) {
+      if (g.draft.length > 0) groups.push({ label: `Team: ${g.label}`, items: g.draft, isDraft: true });
+    }
+    if (teamDraftFallback.length > 0) groups.push({ label: "Team requested", items: teamDraftFallback, isDraft: true });
     return groups;
   }, [reviewItems, favorites]);
   const colCount = 7;
@@ -439,10 +471,12 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
             </th>
           </tr>
         </thead>
-        {groups.map(({ label, items }) => (
-        <tbody key={label}>
-          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
-          {!collapsed.has(label) && items.map(item => (
+        {groups.map(({ label, items, isDraft }) => {
+        const collapseKey = isDraft ? `${label}|draft` : label;
+        return (
+        <tbody key={collapseKey}>
+          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(collapseKey)} onToggle={() => onToggleCollapsed(collapseKey)} isDraft={isDraft} />}
+          {!collapsed.has(collapseKey) && items.map(item => (
             <tr key={item.id} className={tableRowClass}>
               <td className="py-1.5 px-0 text-center w-[24px]">
                 <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
@@ -484,7 +518,8 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
             </tr>
           ))}
         </tbody>
-        ))}
+        );
+        })}
       </table>
     </div>
   );
