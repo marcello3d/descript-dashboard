@@ -38,6 +38,20 @@ The `/api/work-items` endpoint streams newline-delimited JSON. Each line is a fu
 - **`cellLink` / `cellLinkFlex`** — clickable cell elements with hover background
 - **`tableRowClass`** — table rows with `group` class (enables `group-hover` for child elements)
 
+### MCP Server (`src/app/api/mcp/route.ts`)
+
+MCP server hosted as a Next.js API route handler (no separate process). Uses `WebStandardStreamableHTTPServerTransport` in stateless mode.
+
+**Tools:**
+- `get_work_items` `{ fresh?: bool }` — returns `{ items: WorkItem[], errors }` after syncing
+- `get_reviews` `{ fresh?: bool }` — returns `{ reviewItems: ReviewItem[], errors }` after syncing
+- `add_tag` / `remove_tag` `{ workItemId, tag }` — returns `{ tags: string[] }`
+- `update_issue_status` `{ issueId, stateId }` — returns `{ success, statusName }`
+- `get_workflow_states` `{ issueId }` — returns `{ states: [{ id, name, type }] }`
+- `create_cursor_agent` `{ repository, ref, prompt }` — returns `{ agent: CursorAgent }`
+
+MCP endpoint: `http://localhost:4080/api/mcp` (Streamable HTTP transport, stateless).
+
 ## Debugging
 
 - Dev server: `npm run dev` (port 4080)

@@ -21,10 +21,12 @@ cp .env.example .env.local
 You'll need:
 
 - **`GITHUB_TOKEN`** -- [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope
-- **`LINEAR_API_KEY`** -- [Linear personal API key](https://linear.app/settings/api)
-- **`CURSOR_API_KEY`** -- Cursor API key (from Cursor Dashboard, Integrations)
+- **`LINEAR_API_KEY`** -- [Linear API key](https://linear.app/descript/settings/account/security)
+- **`CURSOR_API_KEY`** -- [Cursor API key](https://cursor.com/dashboard/cloud-agents)
 
 All three are optional -- the dashboard works with any subset, just showing less data.
+
+> **Tip:** In the Electron app, you can configure keys via the in-app Settings page instead of `.env.local`.
 
 3. Start the dev server:
 
@@ -33,6 +35,60 @@ npm run dev
 ```
 
 4. Open [http://localhost:4080](http://localhost:4080)
+
+## Electron Desktop App
+
+Run the dashboard as a native macOS app with a menu bar tray icon.
+
+### Prerequisites
+
+```sh
+nvm use 22   # Node 22 required (see .nvmrc)
+npm install
+```
+
+### Development
+
+```sh
+npm run electron:dev
+```
+
+This compiles the Electron main process and launches the app. Next.js runs as a child process on port 4080 — the same as `npm run dev`, but inside an Electron window.
+
+### First Run
+
+On first launch (or in a packaged build without `.env.local`), open **Settings** to configure your API keys:
+
+- Click the gear icon in the header, or
+- Press **Cmd+,**, or
+- Go to the app menu: **Descript Dashboard → Settings...**
+
+Keys are stored locally in `.config.json` (gitignored). Environment variables in `.env.local` take priority if set.
+
+### Packaging
+
+```sh
+npm run electron:dist
+```
+
+Builds Next.js for production, bundles a Node.js binary, and packages everything into a macOS `.app` (output in `dist/`).
+
+### Tray Icon
+
+The menu bar tray shows a summary of your work items grouped by status (Approved, Waiting for Review, Changes Requested, Draft) and pending review requests. Click any item to open it. Data refreshes every 5 minutes.
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| M | My Tasks |
+| R | Requested Reviews |
+| S | Sort by Status |
+| P | Sort by Priority |
+| K | Sort by Stack |
+| A | Show All |
+| Cmd+, | Settings |
+| Cmd+R | Refresh |
 
 ## Features
 

@@ -2,27 +2,68 @@
   "name": "descript-dashboard",
   "version": "0.1.0",
   "private": true,
+  "main": "./out/main/main.js",
   "scripts": {
-    "dev": "next dev -p 4080",
+    "dev": "next dev -p 4080 -H 127.0.0.1",
     "build": "next build",
     "start": "next start -p 4080",
-    "lint": "eslint"
+    "lint": "eslint",
+    "electron:build": "tsc -p electron/tsconfig.json",
+    "electron:dev": "npm run electron:build && electron .",
+    "electron:dist": "next build --webpack && node scripts/prepare-standalone.js && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
+  },
+  "build": {
+    "appId": "com.descript.dashboard",
+    "productName": "Descript Dashboard",
+    "publish": null,
+    "directories": {
+      "output": "dist"
+    },
+    "asar": false,
+    "files": [
+      "out/**/*",
+      "bundle/**/*",
+      "package.json",
+      "!node_modules"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "standalone",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "public/icon-512.png",
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    }
   },
   "dependencies": {
     "@linear/sdk": "^80.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.8.0",
     "next": "16.2.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "react-icons": "^5.6.0"
+    "react-icons": "^5.6.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",

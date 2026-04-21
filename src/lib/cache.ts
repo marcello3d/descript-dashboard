@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 
-const DB_PATH = path.join(process.cwd(), ".cache.db");
+const DB_PATH = path.join(process.env.DESCRIPT_DASHBOARD_CONFIG_PATH || process.cwd(), ".cache.db");
 
 let db: Database.Database | null = null;
 

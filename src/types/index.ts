@@ -3,6 +3,7 @@ export interface LinearIssue {
   title: string;
   identifier: string;
   status: string;
+  statusType: string; // Linear workflow state type: triage, backlog, unstarted, started, completed, canceled
   priority: number;
   url: string;
   updatedAt: string;
@@ -30,6 +31,7 @@ export interface GitHubPR {
   checksState: string | null; // SUCCESS, FAILURE, PENDING, ERROR, EXPECTED, or null
   requestedReviewers: string[]; // individual logins requested for review
   requestedTeams: string[]; // team slugs requested for review
+  bugBotThreadCount: number; // unresolved review threads authored by cursor[bot]
 }
 
 export interface CursorAgent {
@@ -60,4 +62,12 @@ export interface WorkItem {
   linear?: LinearIssue;
   prs: GitHubPR[];
   agents: CursorAgent[];
+  tags: string[];
+}
+
+export interface ReviewItem {
+  id: string;
+  pr: GitHubPR;
+  linear?: LinearIssue;
+  requestType: "individual" | "team";
 }

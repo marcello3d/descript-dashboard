@@ -3,10 +3,12 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
-import type { CursorAgent, GitHubPR, LinearIssue, WorkItem } from "@/types";
+import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
+import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
+import { useToast } from "@/components/Toast";
 
 const CLOSED_PR_ICON_PATH = "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
 
@@ -192,8 +194,8 @@ function getPrNumber(url: string): string {
   return url.split("/").pop() ?? "";
 }
 
-const theadClass = "sticky top-[52px] z-10 bg-background/70 backdrop-blur-[2px]";
-const sectionHeaderClass = "sticky top-[84px] z-[5] bg-surface-alt";
+const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
+const sectionHeaderClass = "sticky top-[calc(var(--titlebar-height,0px)+84px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
 const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
@@ -226,25 +228,42 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <span className="inline-flex items-center gap-1">
-      <a
-        href={pr.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={cellLinkFlex}
-        title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
-      >
-        <PrStatusIcon pr={pr} />
-        <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
-        <ReviewIcon decision={pr.reviewDecision} />
-        {isStacked && (
-          <span className="text-[10px] text-text-muted font-mono truncate max-w-[120px]" title={pr.baseBranch}>
-            &rarr; {pr.baseBranch}
-          </span>
-        )}
-      </a>
-      <CopyBranchButton branch={pr.branch} />
-    </span>
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1">
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cellLinkFlex}
+          title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+        >
+          <PrStatusIcon pr={pr} />
+          <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
+          <ReviewIcon decision={pr.reviewDecision} />
+          {isStacked && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", bubbles: true }));
+              }}
+              className="text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
+              title={`Stacked on ${pr.baseBranch} — click to view stack`}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0L1.874 8.814a.75.75 0 0 1-.273-1.025Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0l-5.249-3.044a.75.75 0 0 1-.273-1.025Z" />
+              </svg>
+            </button>
+          )}
+        </a>
+        <CopyBranchButton branch={pr.branch} />
+      </span>
+      {pr.bugBotThreadCount > 0 && (
+        <span className="text-xs text-red-500 font-medium ml-4">
+          {pr.bugBotThreadCount} bug bot {pr.bugBotThreadCount === 1 ? "issue" : "issues"}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -372,70 +391,39 @@ function ServiceHeader({
   );
 }
 
-type ReviewItem = {
-  key: string;
-  updatedAt: string;
-  title: string;
-  owner: string; // assignee or PR author
-  linear?: LinearIssue;
-  pr?: GitHubPR;
-};
-
-function buildReviewItems(prs: GitHubPR[], issues: LinearIssue[]): ReviewItem[] {
-  const idRe = /[A-Z]+-\d+/gi;
-  return prs.map(pr => {
-    // Match by prUrl first, then by identifier in title/branch
-    let linear = issues.find(i => i.prUrls.includes(pr.url));
-    if (!linear) {
-      const prText = `${pr.title} ${pr.branch}`.toLowerCase();
-      linear = issues.find(i => prText.includes(i.identifier.toLowerCase()));
-    }
-    return {
-      key: `pr-${pr.id}`,
-      updatedAt: pr.updatedAt,
-      title: pr.title,
-      owner: pr.author !== pr.authorLogin ? `@${pr.authorLogin} (${pr.author})` : `@${pr.authorLogin}`,
-      pr,
-      linear,
-    };
-  });
+function reviewItemOwner(item: ReviewItem): string {
+  const pr = item.pr;
+  return pr.author !== pr.authorLogin ? `@${pr.authorLogin} (${pr.author})` : `@${pr.authorLogin}`;
 }
 
-function formatReviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string, long?: boolean): string {
-  const s = reviewSummary(prs, issues, viewerLogin);
+function formatReviewSummary(items: ReviewItem[], long?: boolean): string {
+  let personal = 0, team = 0, draft = 0;
+  for (const item of items) {
+    if (item.pr.draft) { draft++; }
+    else if (item.requestType === "individual") { personal++; }
+    else { team++; }
+  }
   const parts: string[] = [];
-  if (s.personal > 0) parts.push(`${s.personal} ${long ? "personally requested" : "personal"}`);
-  if (s.team > 0) parts.push(`${s.team} ${long ? "team requested" : "team"}`);
-  if (s.draft > 0) parts.push(`${s.draft} draft`);
+  if (personal > 0) parts.push(`${personal} ${long ? "personally requested" : "personal"}`);
+  if (team > 0) parts.push(`${team} ${long ? "team requested" : "team"}`);
+  if (draft > 0) parts.push(`${draft} draft`);
   return parts.join(" · ");
 }
 
-function reviewSummary(prs: GitHubPR[], issues: LinearIssue[], viewerLogin: string): { personal: number; team: number; draft: number } {
-  const built = buildReviewItems(prs, issues);
-  let personal = 0, team = 0, draft = 0;
-  for (const item of built) {
-    if (item.pr?.draft) { draft++; }
-    else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) { personal++; }
-    else { team++; }
-  }
-  return { personal, team, draft };
-}
-
-function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { prs: GitHubPR[]; issues: LinearIssue[]; viewerLogin: string; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
+function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
   const groups = useMemo(() => {
-    const built = buildReviewItems(prs, issues);
     const favs: ReviewItem[] = [];
     const directReady: ReviewItem[] = [];
     const directDraft: ReviewItem[] = [];
     const teamReady: ReviewItem[] = [];
     const teamDraft: ReviewItem[] = [];
-    for (const item of built) {
-      if (favorites.has(item.key)) {
+    for (const item of reviewItems) {
+      if (favorites.has(item.id)) {
         favs.push(item);
-      } else if (viewerLogin && item.pr?.requestedReviewers?.includes(viewerLogin)) {
-        (item.pr?.draft ? directDraft : directReady).push(item);
+      } else if (item.requestType === "individual") {
+        (item.pr.draft ? directDraft : directReady).push(item);
       } else {
-        (item.pr?.draft ? teamDraft : teamReady).push(item);
+        (item.pr.draft ? teamDraft : teamReady).push(item);
       }
     }
     const groups: { label: string; items: ReviewItem[] }[] = [];
@@ -445,7 +433,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
     if (directDraft.length > 0) groups.push({ label: "Individually requested — draft", items: directDraft });
     if (teamDraft.length > 0) groups.push({ label: "Team requested — draft", items: teamDraft });
     return groups;
-  }, [prs, issues, viewerLogin, favorites]);
+  }, [reviewItems, favorites]);
   const colCount = 7;
   if (groups.length === 0) return null;
   return (
@@ -476,32 +464,28 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
         <tbody key={label}>
           {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
           {!collapsed.has(label) && items.map(item => (
-            <tr key={item.key} className={tableRowClass}>
+            <tr key={item.id} className={tableRowClass}>
               <td className="py-1.5 px-0 text-center w-[24px]">
-                <FavoriteButton id={item.key} isFavorite={favorites.has(item.key)} onToggle={onToggleFavorite} />
+                <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
               </td>
               <td className="py-1.5 px-2 text-right w-[70px]">
                 {(() => {
-                  const { text, color } = timeAgo(item.updatedAt);
-                  return <span className={`text-xs ${color}`} title={new Date(item.updatedAt).toLocaleString()}>{text}</span>;
+                  const { text, color } = timeAgo(item.pr.updatedAt);
+                  return <span className={`text-xs ${color}`} title={new Date(item.pr.updatedAt).toLocaleString()}>{text}</span>;
                 })()}
               </td>
               <td className="py-1.5 px-2">
                 <span className="inline-flex items-center gap-1.5">
-                  <a href={item.pr?.url ?? "#"} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
+                  <a href={item.pr.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-text-primary hover:underline">
                     <PrStatusIcon pr={item.pr} />
-                    <span className="text-xs text-text-tertiary font-mono">#{item.pr ? getPrNumber(item.pr.url) : ""}</span>
-                    {item.title}
+                    <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(item.pr.url)}</span>
+                    {item.pr.title}
                   </a>
-                  {item.pr && <CopyBranchButton branch={item.pr.branch} />}
+                  <CopyBranchButton branch={item.pr.branch} />
                 </span>
               </td>
               <td className="py-1.5 px-2 whitespace-nowrap">
-                {item.pr?.authorLogin ? (
-                  <a href={`https://github.com/${item.pr.authorLogin}`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-tertiary hover:underline">{item.owner}</a>
-                ) : (
-                  <span className="text-xs text-text-tertiary">{item.owner}</span>
-                )}
+                <a href={`https://github.com/${item.pr.authorLogin}`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-tertiary hover:underline">{reviewItemOwner(item)}</a>
               </td>
               <td className="py-1.5 px-1 text-center">
                 {item.linear && (
@@ -516,7 +500,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.pr && <ChangesSummary files={item.pr.changedFiles} additions={item.pr.additions} deletions={item.pr.deletions} url={`${item.pr.url}/files`} />}
+                <ChangesSummary files={item.pr.changedFiles} additions={item.pr.additions} deletions={item.pr.deletions} url={`${item.pr.url}/files`} />
               </td>
             </tr>
           ))}
@@ -530,6 +514,7 @@ function ReviewQueue({ prs, issues, viewerLogin, favorites, onToggleFavorite, co
 function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () => void }) {
   const [state, setState] = useState<"idle" | "prompting" | "creating" | "done" | "error">("idle");
   const [error, setError] = useState("");
+  const { toast } = useToast();
 
   async function handleCreate() {
     const pr = item.prs[0]!;
@@ -559,6 +544,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
     } catch (e: any) {
       setState("error");
       setError(e.message);
+      toast("error", `Failed to create agent: ${e.message}`);
     }
   }
 
@@ -612,7 +598,7 @@ function WorkItemTable({
   onAgentCreated,
   collapsed,
   onToggleCollapsed,
-  blockerData,
+  allTags,
   onAddTag,
   onRemoveTag,
   onStatusChanged,
@@ -627,7 +613,7 @@ function WorkItemTable({
   onAgentCreated: () => void;
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
-  blockerData: BlockerData;
+  allTags: string[];
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
   onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
@@ -701,8 +687,8 @@ function WorkItemTable({
               <td className="py-1.5 px-2">
                 <BlockerTags
                   itemId={item.id}
-                  tags={blockerData.tags[item.id] ?? []}
-                  allTags={blockerData.allTags}
+                  tags={item.tags}
+                  allTags={allTags}
                   onAdd={onAddTag}
                   onRemove={onRemoveTag}
                 >
@@ -872,9 +858,9 @@ function isItemClosed(item: WorkItem): boolean {
   if (hasActiveAgent) return false;
   const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
   if (cursorOnly) return true;
-  const status = item.linear?.status.toLowerCase();
-  if (status === "canceled" || status === "cancelled" || status === "done" || status === "completed") return true;
-  const isVerify = status === "verify";
+  const statusType = item.linear?.statusType;
+  if (statusType === "completed" || statusType === "canceled") return true;
+  const isVerify = item.linear?.status.toLowerCase() === "verify";
   const openPrs = item.prs.filter(pr => !pr.closed && !pr.merged);
   const hasMerged = item.prs.some(pr => pr.merged);
   if (hasMerged && openPrs.length === 0 && !isVerify) return true;
@@ -1205,9 +1191,9 @@ export default function Page() {
 
 function useWorkItems(intervalMs = 300000) {
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [reviewPrs, setReviewPrs] = useState<GitHubPR[]>([]);
-  const [reviewIssues, setReviewIssues] = useState<LinearIssue[]>([]);
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [viewerLogin, setViewerLogin] = useState("");
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [rateLimits, setRateLimits] = useState<RateLimitInfo[]>([]);
   const [stats, setStats] = useState<ApiStatRow[]>([]);
   const [recent, setRecent] = useState<ApiCallRecord[]>([]);
@@ -1220,9 +1206,9 @@ function useWorkItems(intervalMs = 300000) {
 
   const applyChunk = useCallback((json: any) => {
     setItems(json.items ?? []);
-    setReviewPrs(json.reviewPrs ?? []);
-    setReviewIssues(json.reviewIssues ?? []);
+    setReviewItems(json.reviewItems ?? []);
     if (json.viewerLogin) setViewerLogin(json.viewerLogin);
+    if (json.allTags) setAllTags(json.allTags);
     const rls: RateLimitInfo[] = [];
     if (json.rateLimits?.github) rls.push({ name: "GitHub Core", ...json.rateLimits.github });
     if (json.rateLimits?.githubSearch) rls.push({ name: "GitHub Search", ...json.rateLimits.githubSearch });
@@ -1235,6 +1221,9 @@ function useWorkItems(intervalMs = 300000) {
     if (json.done) {
       setProgress(null);
       setLastUpdated(Date.now());
+      const nonDraftReviews = (json.reviewItems ?? []).filter((r: ReviewItem) => !r.pr.draft);
+      notifyNewReviews(nonDraftReviews);
+      notifyPrReviewChanges(json.items ?? []);
     }
   }, []);
 
@@ -1286,7 +1275,17 @@ function useWorkItems(intervalMs = 300000) {
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
   useEffect(() => {
-    doFetch(false);
+    registerServiceWorker();
+    // If arriving with ?fresh=1 (e.g. after saving settings), force a bypass
+    const isFresh = new URLSearchParams(window.location.search).get("fresh") === "1";
+    doFetch(isFresh);
+    if (isFresh) {
+      // Clean up the URL param
+      const params = new URLSearchParams(window.location.search);
+      params.delete("fresh");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : "/");
+    }
     const id = setInterval(() => doFetch(false), intervalMs);
     return () => clearInterval(id);
   }, [doFetch, intervalMs]);
@@ -1299,7 +1298,34 @@ function useWorkItems(intervalMs = 300000) {
     ));
   }, []);
 
-  return { items, reviewPrs, reviewIssues, viewerLogin, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus };
+  const addTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId && !item.tags.includes(tag)
+        ? { ...item, tags: [...item.tags, tag] }
+        : item
+    ));
+    setAllTags(prev => prev.includes(tag) ? prev : [...prev, tag].sort());
+    fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    setItems(prev => prev.map(item =>
+      item.id === itemId
+        ? { ...item, tags: item.tags.filter(t => t !== tag) }
+        : item
+    ));
+    fetch("/api/tags", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workItemId: itemId, tag }),
+    }).catch(() => {});
+  }, []);
+
+  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, addTag, removeTag };
 }
 
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
@@ -1379,10 +1405,10 @@ function RepoFilter({ repos, value, onChange }: { repos: string[]; value: string
         onClick={() => setOpen(!open)}
         className="text-xs text-text-tertiary hover:text-text-secondary transition-colors px-1.5 py-0.5 rounded hover:bg-surface-hover"
       >
-        {label}
+        ({label})
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[140px]">
+        <div className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[140px]">
           {[{ value: "all", label: "All repos" }, ...repos.map(r => ({ value: r, label: r }))].map(opt => (
             <button
               key={opt.value}
@@ -1419,11 +1445,6 @@ function getTagColor(name: string) {
     hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
   }
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
-
-interface BlockerData {
-  tags: Record<string, string[]>;
-  allTags: string[];
 }
 
 function BlockerTags({
@@ -1607,8 +1628,77 @@ function BlockerTags({
   );
 }
 
+function NotificationBell() {
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("granted");
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setPermission(getPermissionState());
+  }, []);
+
+  // Don't render if already granted or unsupported
+  if (permission === "granted" || permission === "unsupported") return null;
+
+  const handleClick = async () => {
+    if (permission === "denied") {
+      toast("error", "Notifications blocked — check browser site settings to re-enable");
+      return;
+    }
+    const result = await requestPermission();
+    setPermission(result);
+    if (result === "granted") {
+      toast("success", "Notifications enabled");
+    } else if (result === "denied") {
+      toast("error", "Notifications blocked");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`${iconButtonClass} relative`}
+      title={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
+      aria-label={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+      {permission === "default" && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-status-blue rounded-full" />
+      )}
+      {permission === "denied" && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-status-red rounded-full" />
+      )}
+    </button>
+  );
+}
+
 function Home() {
-  const { items: allUnfilteredItems, reviewPrs, reviewIssues, viewerLogin, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  const { toast } = useToast();
+
+  // Toast wrappers for tag actions
+  const addTag = useCallback((itemId: string, tag: string) => {
+    rawAddTag(itemId, tag);
+    toast("success", `Tag "${tag}" added`);
+  }, [rawAddTag, toast]);
+
+  const removeTag = useCallback((itemId: string, tag: string) => {
+    rawRemoveTag(itemId, tag);
+    toast("info", `Tag "${tag}" removed`);
+  }, [rawRemoveTag, toast]);
+
+  // Toast for status changes
+  const handleStatusChanged = useCallback((issueIdentifier: string, newStatus: string) => {
+    updateItemStatus(issueIdentifier, newStatus);
+    toast("success", `${issueIdentifier} → ${newStatus}`);
+  }, [updateItemStatus, toast]);
+
+  // Toast for agent creation
+  const handleAgentCreated = useCallback(() => {
+    toast("success", "Cursor agent created");
+    refreshAll();
+  }, [toast, refreshAll]);
 
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
@@ -1616,6 +1706,12 @@ function Home() {
     const id = setInterval(() => setTick(t => t + 1), 15000);
     return () => clearInterval(id);
   }, []);
+
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    if (navigator.userAgent.includes("Electron")) setIsElectron(true);
+  }, []);
+  const titlebarHeight = isElectron ? 38 : 0;
 
   const searchParams = useSearchParams();
 
@@ -1706,35 +1802,6 @@ function Home() {
     });
   }, []);
 
-  const [blockerData, setBlockerData] = useState<BlockerData>(() => {
-    if (typeof window === "undefined") return { tags: {}, allTags: [] };
-    try {
-      const saved = localStorage.getItem("dashboard:blockers");
-      return saved ? JSON.parse(saved) : { tags: {}, allTags: [] };
-    } catch { return { tags: {}, allTags: [] }; }
-  });
-  const addTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = prev.tags[itemId] ?? [];
-      if (itemTags.includes(tag)) return prev;
-      const next: BlockerData = {
-        tags: { ...prev.tags, [itemId]: [...itemTags, tag] },
-        allTags: prev.allTags.includes(tag) ? prev.allTags : [...prev.allTags, tag],
-      };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
-  const removeTag = useCallback((itemId: string, tag: string) => {
-    setBlockerData(prev => {
-      const itemTags = (prev.tags[itemId] ?? []).filter(t => t !== tag);
-      const nextTags = { ...prev.tags };
-      if (itemTags.length === 0) delete nextTags[itemId]; else nextTags[itemId] = itemTags;
-      const next: BlockerData = { tags: nextTags, allTags: prev.allTags };
-      localStorage.setItem("dashboard:blockers", JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const [archived, setArchived] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
@@ -1765,9 +1832,16 @@ function Home() {
   const allItems = useMemo(() => {
     let items = allUnfilteredItems;
     if (repoFilter !== "all") {
+      const repoSuffix = `/${repoFilter}`;
       items = items.filter(item => {
-        const repo = item.prs[0]?.repo ?? item.agents[0]?.repo ?? "";
-        return repo.endsWith(`/${repoFilter}`) || repo === repoFilter || (item.prs.length === 0 && item.agents.length === 0);
+        if (item.prs.some(pr => pr.repo.endsWith(repoSuffix) || pr.repo === repoFilter)) return true;
+        if (item.agents.some(a => a.repo.endsWith(repoSuffix) || a.repo === repoFilter)) return true;
+        if (item.prs.length === 0 && item.agents.length === 0) {
+          const prUrls = item.linear?.prUrls ?? [];
+          if (prUrls.length === 0) return true;
+          return prUrls.some(url => url.includes(`/${repoFilter}/`));
+        }
+        return false;
       });
     }
     const showAll = serviceFilter.size === 0 || serviceFilter.size === ALL_SERVICES.size;
@@ -1815,6 +1889,14 @@ function Home() {
     return allItems.filter(i => !archived.has(i.id));
   }, [allItems, archived, showArchived]);
 
+  const filteredReviewItems = useMemo(() => {
+    if (repoFilter === "all") return reviewItems;
+    const repoSuffix = `/${repoFilter}`;
+    return reviewItems.filter(item =>
+      item.pr.repo.endsWith(repoSuffix) || item.pr.repo === repoFilter
+    );
+  }, [reviewItems, repoFilter]);
+
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
@@ -1843,14 +1925,14 @@ function Home() {
     const section = isReview ? "Requested reviews" : "My tasks";
     let summary = "";
     if (isReview) {
-      summary = formatReviewSummary(reviewPrs, reviewIssues, viewerLogin);
+      summary = formatReviewSummary(filteredReviewItems);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
       const SHORT_LABELS: Record<string, string> = { "Changes requested": "Changes", "Waiting": "Review" };
       summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
-  }, [isReview, reviewPrs, reviewIssues, viewerLogin, open]);
+  }, [isReview, filteredReviewItems, open]);
 
   useEffect(() => {
     document.title = pageTitle;
@@ -1858,14 +1940,15 @@ function Home() {
 
 
   return (
-    <div className="w-full px-4 py-4">
-      <header className="mb-1 sticky top-0 z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+    <div className="w-full px-4 py-4" style={{ "--titlebar-height": `${titlebarHeight}px` } as React.CSSProperties}>
+      {isElectron && <div className="h-[38px] -mx-4 -mt-4 sticky top-0 z-30 bg-background" data-drag-region />}
+      <header className="mb-1 sticky top-[var(--titlebar-height,0px)] z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
             { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}`, hotkey: "m" },
-            { value: "review" as const, label: `Requested reviews${reviewPrs.length > 0 ? ` (${reviewPrs.length})` : ""}`, hotkey: "r" },
+            { value: "review" as const, label: `Requested reviews${filteredReviewItems.length > 0 ? ` (${filteredReviewItems.length})` : ""}`, hotkey: "r" },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
@@ -1891,7 +1974,7 @@ function Home() {
             />
           </svg>
         </button>
-        <span className="text-[11px] text-text-tertiary tabular-nums">
+        <span className="text-[11px] text-text-tertiary tabular-nums" suppressHydrationWarning>
           {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
         </span>
         {rateLimitInfos.length > 0 && (
@@ -1911,10 +1994,22 @@ function Home() {
             onChange={(v) => setSort(v as SortMode)}
           />
         )}
-        {repos.length > 1 && <RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} />}
+        <NotificationBell />
+        <a
+          href="/settings"
+          className={iconButtonClass}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </a>
         </div>
-        <div className="text-sm text-text-tertiary mt-1">
-          {isReview ? formatReviewSummary(reviewPrs, reviewIssues, viewerLogin, true) : (() => {
+        <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
+          {repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
+          {isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -1934,18 +2029,30 @@ function Home() {
       </header>
 
       {serviceErrors.length > 0 && (
-        <div className="mb-3 space-y-1">
+        <div className="mb-3 px-3 py-2 rounded-lg border border-status-red/20 bg-status-red/5">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-status-red flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-sm font-medium text-status-red">Connection errors</span>
+            <a href="/settings" className="ml-auto text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+          </div>
           {serviceErrors.map((err, i) => (
-            <p key={i} className="text-xs text-status-red">{err}</p>
+            <p key={i} className="text-xs text-status-red/80 ml-6">{err}</p>
           ))}
         </div>
       )}
 
       {isReview ? (
         <>
-          <ReviewQueue prs={reviewPrs} issues={reviewIssues} viewerLogin={viewerLogin} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-          {reviewPrs.length === 0 && reviewIssues.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">No PRs awaiting your review</p>
+          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+          {filteredReviewItems.length === 0 && !anyLoading && (
+            <div className="text-center py-16 space-y-2">
+              <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
+              {serviceErrors.length > 0 && (
+                <a href="/settings" className="inline-block text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
+              )}
+            </div>
           )}
         </>
       ) : (
@@ -1956,20 +2063,31 @@ function Home() {
             dimmed={false}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
-            onAgentCreated={refreshAll}
+            onAgentCreated={handleAgentCreated}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
-            blockerData={blockerData}
+            allTags={allTags}
             onAddTag={addTag}
             onRemoveTag={removeTag}
-            onStatusChanged={updateItemStatus}
+            onStatusChanged={handleStatusChanged}
             archived={archived}
             onToggleArchive={toggleArchive}
           />
           {displayItems.length === 0 && !anyLoading && (
-            <p className="text-sm text-text-tertiary text-center py-12">
-              No active items. Check your API keys in .env.local
-            </p>
+            <div className="text-center py-16 space-y-3">
+              <svg className="w-10 h-10 mx-auto text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <p className="text-sm text-text-secondary font-medium">No active items</p>
+              <p className="text-sm text-text-tertiary">Add your API keys to get started</p>
+              <a
+                href="/settings"
+                className="inline-block mt-2 px-4 py-1.5 text-sm font-medium rounded-md bg-text-primary text-background hover:opacity-90 transition-opacity"
+              >
+                Open Settings
+              </a>
+            </div>
           )}
         </>
       )}

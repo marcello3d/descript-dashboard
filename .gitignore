@@ -42,3 +42,10 @@ next-env.d.ts
 
 # local cache
 .cache.db*
+
+# electron
+/dist
+/bundle
+
+# app config (API keys)
+.config.json
