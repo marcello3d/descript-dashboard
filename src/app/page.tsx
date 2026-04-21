@@ -9,72 +9,40 @@ import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPerm
 import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
 import { useToast } from "@/components/Toast";
-
-const CLOSED_PR_ICON_PATH = "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z";
-
-function ClosedPrIcon({ className = "w-3.5 h-3.5 flex-shrink-0" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="#cf222e">
-      <path d={CLOSED_PR_ICON_PATH} />
-    </svg>
-  );
-}
+import {
+  BellIcon,
+  CheckIcon,
+  ClosedPrIcon,
+  CopyIcon,
+  CursorIcon,
+  DraftPrIcon,
+  FilterIcon,
+  GearIcon,
+  MergedPrIcon,
+  OpenPrIcon,
+  RefreshIcon,
+  ReviewApprovedIcon,
+  ReviewChangesRequestedIcon,
+  ReviewRequiredIcon,
+  StackIcon,
+  WarningIcon,
+} from "@/components/icons";
 
 // GitHub PR status icons (Octicons)
 function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?: boolean } }) {
   if (!pr) return <SiGithub className="w-3.5 h-3.5 text-text-muted" />;
   if (pr.closed) return <ClosedPrIcon />;
-  if (pr.merged) return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="#8250df">
-      <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
-    </svg>
-  );
-  if (pr.draft) return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="#656d76">
-      <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
-    </svg>
-  );
-  // Open PR
-  return (
-    <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="#1a7f37">
-      <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
-    </svg>
-  );
+  if (pr.merged) return <MergedPrIcon />;
+  if (pr.draft) return <DraftPrIcon />;
+  return <OpenPrIcon />;
 }
 
 // GitHub PR review status icons (Octicons)
 function ReviewIcon({ decision }: { decision: string | null }) {
-  if (decision === "APPROVED") return (
-    <span title="Approved">
-      <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 16 16" fill="#1a7f37">
-        <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
-      </svg>
-    </span>
-  );
-  if (decision === "CHANGES_REQUESTED") return (
-    <span title="Changes requested">
-      <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 16 16" fill="#cf222e">
-        <path d="M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94Z" />
-      </svg>
-    </span>
-  );
-  if (decision === "REVIEW_REQUIRED") return (
-    <span title="Review required">
-      <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 16 16" fill="#9a6700">
-        <path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
-      </svg>
-    </span>
-  );
+  if (decision === "APPROVED") return <span title="Approved"><ReviewApprovedIcon /></span>;
+  if (decision === "CHANGES_REQUESTED") return <span title="Changes requested"><ReviewChangesRequestedIcon /></span>;
+  if (decision === "REVIEW_REQUIRED") return <span title="Review required"><ReviewRequiredIcon /></span>;
   return null;
-}
-
-// Real Cursor logomark from their brand assets
-function CursorIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="400 395 167 190" fill="currentColor">
-      <path d="M563.463 439.971L487.344 396.057C484.899 394.646 481.883 394.646 479.439 396.057L403.323 439.971C401.269 441.156 400 443.349 400 445.723V534.276C400 536.647 401.269 538.843 403.323 540.029L479.443 583.943C481.887 585.353 484.903 585.353 487.347 583.943L563.466 540.029C565.521 538.843 566.79 536.651 566.79 534.276V445.723C566.79 443.352 565.521 441.156 563.466 439.971H563.463ZM558.681 449.273L485.199 576.451C484.703 577.308 483.391 576.958 483.391 575.966V492.691C483.391 491.027 482.501 489.488 481.058 488.652L408.887 447.016C408.03 446.52 408.38 445.209 409.373 445.209H556.337C558.424 445.209 559.728 447.47 558.685 449.276H558.681V449.273Z" />
-    </svg>
-  );
 }
 
 function timeAgo(dateStr: string): { text: string; color: string } {
@@ -250,9 +218,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
               className="text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
               title={`Stacked on ${pr.baseBranch} — click to view stack`}
             >
-              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.25 1.25 0 0 1 0-2.162ZM8.125 1.69a.25.25 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.25.25 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0L1.874 8.814a.75.75 0 0 1-.273-1.025Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.25.25 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.249 3.044a1.75 1.75 0 0 1-1.752 0l-5.249-3.044a.75.75 0 0 1-.273-1.025Z" />
-              </svg>
+              <StackIcon />
             </button>
           )}
         </a>
@@ -281,16 +247,7 @@ function CopyBranchButton({ branch }: { branch: string }) {
         setTimeout(() => setCopied(false), 1500);
       }}
     >
-      {copied ? (
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-        </svg>
-      )}
+      {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
   );
 }
@@ -301,11 +258,7 @@ function SectionHeader({ label, count, colSpan, collapsed, onToggle, isDraft }: 
       <td colSpan={colSpan} className="pt-4 pb-1 px-2">
         <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer inline-flex items-center gap-1.5">
           <span className="inline-block w-4 text-xs">{collapsed ? "▸" : "▾"}</span>
-          {isDraft && (
-            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
-            </svg>
-          )}
+          {isDraft && <DraftPrIcon className="w-3.5 h-3.5 flex-shrink-0" />}
           <span>{isDraft ? `DRAFT: ${label}` : label}</span>
           <span className="font-normal">({count})</span>
         </button>
@@ -1361,9 +1314,7 @@ function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc
         className={`p-1 rounded transition-colors ${allChecked ? "text-text-tertiary hover:text-text-secondary" : "text-text-primary"}`}
         title="Filter by service"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-        </svg>
+        <FilterIcon />
       </button>
       {open && (
         <div className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-md shadow-lg py-1 z-30 min-w-[150px]">
@@ -1374,11 +1325,7 @@ function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc
               className="flex items-center gap-2 w-full text-left text-xs px-3 py-1.5 transition-colors text-text-secondary hover:bg-surface-hover"
             >
               <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${(allChecked || value.has(svc.key)) ? "bg-blue-500 border-blue-500 text-white" : "border-border"}`}>
-                {(allChecked || value.has(svc.key)) && (
-                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {(allChecked || value.has(svc.key)) && <CheckIcon className="w-2.5 h-2.5" strokeWidth={3} />}
               </span>
               {svc.icon}
               <span>{svc.label}</span>
@@ -1666,9 +1613,7 @@ function NotificationBell() {
       title={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
       aria-label={permission === "denied" ? "Notifications blocked" : "Enable notifications"}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-      </svg>
+      <BellIcon />
       {permission === "default" && (
         <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-status-blue rounded-full" />
       )}
@@ -1942,19 +1887,7 @@ function Home() {
           title="Refresh all"
           aria-label="Refresh all"
         >
-          <svg
-            className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
+          <RefreshIcon className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`} />
         </button>
         <span className="text-[11px] text-text-tertiary tabular-nums" suppressHydrationWarning>
           {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
@@ -1983,10 +1916,7 @@ function Home() {
           title="Settings"
           aria-label="Settings"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <GearIcon />
         </a>
         </div>
         <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
@@ -2002,9 +1932,7 @@ function Home() {
       {serviceErrors.length > 0 && (
         <div className="mb-3 px-3 py-2 rounded-lg border border-status-red/20 bg-status-red/5">
           <div className="flex items-center gap-2 mb-1">
-            <svg className="w-4 h-4 text-status-red flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <WarningIcon className="w-4 h-4 text-status-red flex-shrink-0" />
             <span className="text-sm font-medium text-status-red">Connection errors</span>
             <a href="/settings" className="ml-auto text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
           </div>
@@ -2044,10 +1972,7 @@ function Home() {
           />
           {displayItems.length === 0 && !anyLoading && (
             <div className="text-center py-16 space-y-3">
-              <svg className="w-10 h-10 mx-auto text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+              <GearIcon className="w-10 h-10 mx-auto text-text-muted" strokeWidth={1.5} />
               <p className="text-sm text-text-secondary font-medium">No active items</p>
               <p className="text-sm text-text-tertiary">Add your API keys to get started</p>
               <a

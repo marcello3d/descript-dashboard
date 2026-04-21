@@ -38,6 +38,10 @@ The `/api/work-items` endpoint streams newline-delimited JSON. Each line is a fu
 - **`cellLink` / `cellLinkFlex`** — clickable cell elements with hover background
 - **`tableRowClass`** — table rows with `group` class (enables `group-hover` for child elements)
 
+### Icons (`src/components/icons/`)
+
+Inline SVGs live in one-per-file components under `src/components/icons/` and are re-exported from `src/components/icons/index.ts`. Import as `import { DraftPrIcon, GearIcon } from "@/components/icons"`. Each icon takes a `className` prop (with a sensible default) and, where relevant, a `strokeWidth`. When you need a new icon, add a new file and export it from the barrel — don't inline `<svg>` in page components.
+
 ### MCP Server (`src/app/api/mcp/route.ts`)
 
 MCP server hosted as a Next.js API route handler (no separate process). Uses `WebStandardStreamableHTTPServerTransport` in stateless mode.
