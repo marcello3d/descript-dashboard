@@ -1339,8 +1339,7 @@ function useNotificationPoll() {
           if (!cancelled) {
             const reviews: ReviewItem[] = json.reviewItems ?? [];
             const items: WorkItem[] = json.items ?? [];
-            const nonDraftReviews = reviews.filter(r => !r.pr.draft);
-            notifyNewReviews(nonDraftReviews);
+            notifyNewReviews(reviews);
             notifyPrReviewChanges(items);
             if (typeof json.pollInterval === "number" && json.pollInterval > 0) {
               nextDelay = json.pollInterval * 1000;
