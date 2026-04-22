@@ -74,15 +74,17 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
 
   if (newReviews.length === 1) {
     const r = newReviews[0];
-    const prefix = r.linear?.identifier ? `${r.linear.identifier}: ` : "";
-    const author =
-      r.pr.author !== r.pr.authorLogin
-        ? r.pr.author
-        : `@${r.pr.authorLogin}`;
-    showNotification("New review request", `${prefix}${r.pr.title} — ${author}`, { tab: "review", itemId: r.id });
+    const { title, body } = formatReviewNotification(r);
+    showNotification(title, body, { tab: "review", itemId: r.id });
   } else {
+    const drafts = newReviews.filter(r => r.pr.draft).length;
+    const teams = newReviews.filter(r => r.requestType === "team").length;
+    const qualifiers: string[] = [];
+    if (drafts > 0) qualifiers.push(`${drafts} draft`);
+    if (teams > 0) qualifiers.push(`${teams} team`);
+    const suffix = qualifiers.length > 0 ? ` (${qualifiers.join(", ")})` : "";
     showNotification(
-      `${newReviews.length} new review requests`,
+      `${newReviews.length} new review requests${suffix}`,
       newReviews
         .slice(0, 3)
         .map((r) => r.pr.title)
@@ -91,6 +93,27 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
       { tab: "review" },
     );
   }
+}
+
+function formatReviewNotification(r: ReviewItem): { title: string; body: string } {
+  const isTeam = r.requestType === "team";
+  const isDraft = r.pr.draft;
+
+  let title: string;
+  if (isTeam && isDraft) title = "Draft team review request";
+  else if (isTeam) title = "Team review request";
+  else if (isDraft) title = "Draft review request";
+  else title = "Review request";
+
+  const prefix = r.linear?.identifier ? `${r.linear.identifier}: ` : "";
+  const author =
+    r.pr.author !== r.pr.authorLogin ? r.pr.author : `@${r.pr.authorLogin}`;
+  const teamSuffix =
+    isTeam && r.pr.requestedTeams.length > 0
+      ? ` · ${r.pr.requestedTeams.map(t => t.name).join(", ")}`
+      : "";
+  const body = `${prefix}${r.pr.title} — ${author}${teamSuffix}`;
+  return { title, body };
 }
 
 export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
