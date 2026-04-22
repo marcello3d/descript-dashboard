@@ -369,7 +369,7 @@ function formatReviewSummary(items: ReviewItem[], long?: boolean): string {
   return parts.join(" · ");
 }
 
-function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapsed, onToggleCollapsed }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void }) {
+function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapsed, onToggleCollapsed, highlightedId }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void; highlightedId: string | null }) {
   const groups = useMemo(() => {
     const favs: ReviewItem[] = [];
     const directReady: ReviewItem[] = [];
@@ -451,7 +451,7 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
         <tbody key={collapseKey}>
           {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(collapseKey)} onToggle={() => onToggleCollapsed(collapseKey)} isDraft={isDraft} />}
           {!collapsed.has(collapseKey) && items.map(item => (
-            <tr key={item.id} className={tableRowClass}>
+            <tr key={item.id} className={tableRowClass} data-item-id={item.id} data-highlight={highlightedId === item.id ? "true" : undefined}>
               <td className="py-1.5 px-0 text-center w-[24px]">
                 <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
               </td>
@@ -592,6 +592,7 @@ function WorkItemTable({
   onStatusChanged,
   archived,
   onToggleArchive,
+  highlightedId,
 }: {
   groups: { label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
   errors: string[];
@@ -607,6 +608,7 @@ function WorkItemTable({
   onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
   archived: Set<string>;
   onToggleArchive: (id: string) => void;
+  highlightedId: string | null;
 }) {
   const colCount = 9;
   return (
@@ -646,6 +648,8 @@ function WorkItemTable({
             <tr
               key={item.id}
               className={tableRowClass}
+              data-item-id={item.id}
+              data-highlight={highlightedId === item.id ? "true" : undefined}
             >
               <td className="py-1.5 px-0 text-center w-[24px]">
                 <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
@@ -1209,9 +1213,6 @@ function useWorkItems(intervalMs = 300000) {
     if (json.done) {
       setProgress(null);
       setLastUpdated(Date.now());
-      const nonDraftReviews = (json.reviewItems ?? []).filter((r: ReviewItem) => !r.pr.draft);
-      notifyNewReviews(nonDraftReviews);
-      notifyPrReviewChanges(json.items ?? []);
     }
   }, []);
 
@@ -1314,6 +1315,45 @@ function useWorkItems(intervalMs = 300000) {
   }, []);
 
   return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, addTag, removeTag };
+}
+
+// Drives desktop notifications on a fast cadence, independent of the heavier
+// UI refresh. Runs regardless of window focus — the notification helpers handle
+// the skip-while-focused rule themselves.
+//
+// The server hits GitHub's /notifications endpoint with If-Modified-Since as a
+// cheap "anything changed?" gate, so we can poll this often without burning
+// rate limit. It also returns GitHub's recommended poll interval, which we
+// honor so the client backs off automatically if GitHub asks us to.
+function useNotificationPoll() {
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      let nextDelay = 60000;
+      try {
+        const res = await fetch("/api/notify-check", { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled) {
+            const reviews: ReviewItem[] = json.reviewItems ?? [];
+            const items: WorkItem[] = json.items ?? [];
+            const nonDraftReviews = reviews.filter(r => !r.pr.draft);
+            notifyNewReviews(nonDraftReviews);
+            notifyPrReviewChanges(items);
+            if (typeof json.pollInterval === "number" && json.pollInterval > 0) {
+              nextDelay = json.pollInterval * 1000;
+            }
+          }
+        }
+      } catch { /* transient network errors are fine; next tick retries */ }
+      if (!cancelled) timer = setTimeout(poll, nextDelay);
+    }
+
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, []);
 }
 
 function ServiceFilter({ value, onToggle }: { value: Set<string>; onToggle: (svc: string) => void }) {
@@ -1655,6 +1695,7 @@ function NotificationBell() {
 
 function Home() {
   const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  useNotificationPoll();
   const { toast } = useToast();
 
   // Toast wrappers for tag actions
@@ -1734,6 +1775,34 @@ function Home() {
   }, []);
 
   const setTab = useCallback((t: Tab) => { setTabState(t); setParam("tab", t, "tasks"); }, [setParam]);
+
+  // Notification click → switch tab, scroll to row, flash highlight
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tab?: Tab; itemId?: string } | undefined;
+      if (!detail) return;
+      if (detail.tab) {
+        setTabState(detail.tab);
+        setParam("tab", detail.tab, "tasks");
+      }
+      if (detail.itemId) {
+        const target = detail.itemId;
+        setHighlightedId(target);
+        // Wait two frames for the tab switch + layout, then scroll
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-item-id="${CSS.escape(target)}"]`);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }));
+        window.setTimeout(() => {
+          setHighlightedId(curr => (curr === target ? null : curr));
+        }, 3000);
+      }
+    };
+    window.addEventListener("dashboard:focusItem", handler);
+    return () => window.removeEventListener("dashboard:focusItem", handler);
+  }, [setParam]);
+
   const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
   const view = tab === "review" ? "review" as ViewMode : sort as ViewMode;
   const isOpen = sort === "stage" || sort === "priority";
@@ -2008,7 +2077,7 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} highlightedId={highlightedId} />
           {filteredReviewItems.length === 0 && !anyLoading && (
             <div className="text-center py-16 space-y-2">
               <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
@@ -2035,6 +2104,7 @@ function Home() {
             onStatusChanged={handleStatusChanged}
             archived={archived}
             onToggleArchive={toggleArchive}
+            highlightedId={highlightedId}
           />
           {displayItems.length === 0 && !anyLoading && (
             <div className="text-center py-16 space-y-3">

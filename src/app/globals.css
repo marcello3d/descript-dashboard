@@ -113,3 +113,12 @@ body {
 .animate-slide-in-right {
   animation: slide-in-right 0.2s ease-out;
 }
+
+/* Row highlight pulse when navigated to from a notification */
+@keyframes row-highlight {
+  0% { background-color: color-mix(in oklch, var(--status-blue) 28%, transparent); }
+  100% { background-color: transparent; }
+}
+tr[data-highlight="true"] > td {
+  animation: row-highlight 2.5s ease-out;
+}

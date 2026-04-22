@@ -525,3 +525,43 @@ export async function fetchBugBotThreadCounts(
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {
   return raw.map(transformPR);
 }
+
+// Lightweight signal for "has anything happened on GitHub that I care about?"
+// Uses the /notifications endpoint with If-Modified-Since — a 304 response
+// doesn't count against the rate limit, so we can poll this frequently without
+// burning quota. `participating=true` filters down to things the viewer is
+// directly involved in (review requests, mentions, PR updates on authored PRs).
+export interface NotificationSignal {
+  modified: boolean;
+  lastModified: string;
+  pollInterval: number;
+}
+
+export async function checkGitHubNotificationSignal(
+  token: string,
+  lastModified?: string,
+): Promise<NotificationSignal | null> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (lastModified) headers["If-Modified-Since"] = lastModified;
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.github.com/notifications?participating=true", { headers });
+  } catch {
+    return null;
+  }
+
+  const pollInterval = parseInt(res.headers.get("X-Poll-Interval") ?? "60", 10);
+
+  if (res.status === 304) {
+    return { modified: false, lastModified: lastModified ?? "", pollInterval };
+  }
+  if (!res.ok) return null;
+
+  const newLastModified = res.headers.get("Last-Modified") ?? lastModified ?? "";
+  return { modified: true, lastModified: newLastModified, pollInterval };
+}

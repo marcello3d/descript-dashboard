@@ -2,6 +2,8 @@
 
 import type { ReviewItem, WorkItem } from "@/types";
 
+type FocusTarget = { tab: "review" | "tasks"; itemId?: string };
+
 const seenReviewIds = new Set<string>();
 // Track PR review decisions by PR URL to detect changes
 const knownPrDecisions = new Map<string, string | null>();
@@ -77,7 +79,7 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
       r.pr.author !== r.pr.authorLogin
         ? r.pr.author
         : `@${r.pr.authorLogin}`;
-    showNotification("New review request", `${prefix}${r.pr.title} — ${author}`);
+    showNotification("New review request", `${prefix}${r.pr.title} — ${author}`, { tab: "review", itemId: r.id });
   } else {
     showNotification(
       `${newReviews.length} new review requests`,
@@ -86,13 +88,14 @@ export async function notifyNewReviews(reviews: ReviewItem[]): Promise<void> {
         .map((r) => r.pr.title)
         .join(", ") +
         (newReviews.length > 3 ? ` +${newReviews.length - 3} more` : ""),
+      { tab: "review" },
     );
   }
 }
 
 export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
   // Collect all open PRs with their review decisions
-  const currentPrs = new Map<string, { decision: string | null; title: string; identifier?: string }>();
+  const currentPrs = new Map<string, { decision: string | null; title: string; identifier?: string; itemId: string }>();
   for (const item of items) {
     for (const pr of item.prs) {
       if (pr.merged || pr.closed) continue;
@@ -100,6 +103,7 @@ export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
         decision: pr.reviewDecision,
         title: pr.title,
         identifier: item.linear?.identifier,
+        itemId: item.id,
       });
     }
   }
@@ -127,7 +131,7 @@ export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
     return;
   }
 
-  for (const [url, { decision, title, identifier }] of currentPrs) {
+  for (const [url, { decision, title, identifier, itemId }] of currentPrs) {
     const prev = knownPrDecisions.get(url);
     knownPrDecisions.set(url, decision);
 
@@ -136,15 +140,16 @@ export async function notifyPrReviewChanges(items: WorkItem[]): Promise<void> {
     if (prev === undefined) continue; // new PR, not a status change
 
     const prefix = identifier ? `${identifier}: ` : "";
+    const target: FocusTarget = { tab: "tasks", itemId };
     if (decision === "APPROVED") {
-      showNotification("PR approved", `${prefix}${title}`);
+      showNotification("PR approved", `${prefix}${title}`, target);
     } else if (decision === "CHANGES_REQUESTED") {
-      showNotification("Changes requested", `${prefix}${title}`);
+      showNotification("Changes requested", `${prefix}${title}`, target);
     }
   }
 }
 
-function showNotification(title: string, body: string): void {
+function showNotification(title: string, body: string, target?: FocusTarget): void {
   const notif = new Notification(title, {
     body,
     icon: "/icon-192.png",
@@ -152,5 +157,8 @@ function showNotification(title: string, body: string): void {
   notif.onclick = () => {
     window.focus();
     notif.close();
+    if (target) {
+      window.dispatchEvent(new CustomEvent("dashboard:focusItem", { detail: target }));
+    }
   };
 }
