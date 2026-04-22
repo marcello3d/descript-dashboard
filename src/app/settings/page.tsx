@@ -42,6 +42,14 @@ const KEY_CONFIG = [
     placeholder: "ghp_...",
   },
   {
+    key: "GITHUB_NOTIFICATIONS_TOKEN",
+    label: "GitHub Notifications Token",
+    icon: <SiGithub className="w-4 h-4 text-text-secondary" />,
+    linkUrl: "https://github.com/settings/tokens/new?scopes=notifications&description=descript-dashboard%20notifications",
+    linkLabel: "github.com → classic token with 'notifications' scope (optional, enables faster polling)",
+    placeholder: "ghp_... (classic PAT with 'notifications' scope)",
+  },
+  {
     key: "CURSOR_API_KEY",
     label: "Cursor API Key",
     icon: <CursorIcon className="w-4 h-4 text-text-secondary" />,

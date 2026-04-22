@@ -1,4 +1,4 @@
-import { getConfig, setConfig, maskKey, type AppConfig } from "@/lib/config";
+import { getConfig, setConfig, maskKey, SECRET_KEYS, type AppConfig } from "@/lib/config";
 import { invalidateEnvCache } from "@/lib/env";
 
 function notificationPrefs(config: AppConfig) {
@@ -10,19 +10,27 @@ function notificationPrefs(config: AppConfig) {
   };
 }
 
+function keyStates(config: AppConfig) {
+  const keys: Record<string, { set: boolean; masked: string }> = {};
+  for (const key of SECRET_KEYS) {
+    keys[key] = { set: !!config[key], masked: maskKey(config[key]) };
+  }
+  return keys;
+}
+
+function envOverrides() {
+  const overrides: Record<string, boolean> = {};
+  for (const key of SECRET_KEYS) {
+    overrides[key] = !!process.env[key];
+  }
+  return overrides;
+}
+
 export async function GET() {
   const config = getConfig();
   return Response.json({
-    keys: {
-      GITHUB_TOKEN: { set: !!config.GITHUB_TOKEN, masked: maskKey(config.GITHUB_TOKEN) },
-      LINEAR_API_KEY: { set: !!config.LINEAR_API_KEY, masked: maskKey(config.LINEAR_API_KEY) },
-      CURSOR_API_KEY: { set: !!config.CURSOR_API_KEY, masked: maskKey(config.CURSOR_API_KEY) },
-    },
-    envOverrides: {
-      GITHUB_TOKEN: !!process.env.GITHUB_TOKEN,
-      LINEAR_API_KEY: !!process.env.LINEAR_API_KEY,
-      CURSOR_API_KEY: !!process.env.CURSOR_API_KEY,
-    },
+    keys: keyStates(config),
+    envOverrides: envOverrides(),
     notifications: notificationPrefs(config),
   });
 }
@@ -34,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   const updates: Partial<AppConfig> = {};
-  for (const key of ["GITHUB_TOKEN", "LINEAR_API_KEY", "CURSOR_API_KEY"] as const) {
+  for (const key of SECRET_KEYS) {
     if (key in body) {
       updates[key] = typeof body[key] === "string" ? body[key] : undefined;
     }
@@ -59,11 +67,7 @@ export async function POST(request: Request) {
     const config = setConfig(updates);
     invalidateEnvCache();
     return Response.json({
-      keys: {
-        GITHUB_TOKEN: { set: !!config.GITHUB_TOKEN, masked: maskKey(config.GITHUB_TOKEN) },
-        LINEAR_API_KEY: { set: !!config.LINEAR_API_KEY, masked: maskKey(config.LINEAR_API_KEY) },
-        CURSOR_API_KEY: { set: !!config.CURSOR_API_KEY, masked: maskKey(config.CURSOR_API_KEY) },
-      },
+      keys: keyStates(config),
       notifications: notificationPrefs(config),
     });
   } catch {
