@@ -1692,6 +1692,39 @@ function NotificationBell() {
   );
 }
 
+function workItemHaystack(item: WorkItem): string {
+  const parts: string[] = [
+    item.title,
+    item.linear?.title ?? "",
+    item.linear?.identifier ?? "",
+    item.linear?.status ?? "",
+    item.linear?.assignee ?? "",
+    ...item.prs.flatMap(pr => [pr.title, pr.author, pr.authorLogin, pr.repo, pr.branch]),
+    ...item.agents.flatMap(a => [a.name, a.repo, a.branch, a.status]),
+    ...item.tags,
+  ];
+  return parts.join("   ").toLowerCase();
+}
+
+function reviewItemHaystack(r: ReviewItem): string {
+  const parts: string[] = [
+    r.pr.title,
+    r.pr.author,
+    r.pr.authorLogin,
+    r.pr.repo,
+    r.pr.branch,
+    r.linear?.title ?? "",
+    r.linear?.identifier ?? "",
+    ...r.pr.requestedTeams.map(t => t.name),
+  ];
+  return parts.join("   ").toLowerCase();
+}
+
+function matchesSearchTerms(haystack: string, terms: string[]): boolean {
+  for (const t of terms) if (!haystack.includes(t)) return false;
+  return true;
+}
+
 function Home() {
   const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   useNotificationPoll();
@@ -1742,6 +1775,22 @@ function Home() {
   const [sort, setSortState] = useState<SortMode>("stage");
   const [repoFilter, setRepoFilterState] = useState("descript");
   const [serviceFilter, setServiceFilterState] = useState<Set<string>>(new Set<string>());
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        const el = searchInputRef.current;
+        if (el) { el.focus(); el.select(); }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Sync from URL on mount
   useEffect(() => {
@@ -1932,18 +1981,32 @@ function Home() {
 
   const archivedCount = useMemo(() => allItems.filter(i => archived.has(i.id)).length, [allItems, archived]);
 
+  const searchTerms = useMemo(
+    () => search.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [search],
+  );
+
   const visibleItems = useMemo(() => {
-    if (showArchived) return allItems;
-    return allItems.filter(i => !archived.has(i.id));
-  }, [allItems, archived, showArchived]);
+    let items = showArchived ? allItems : allItems.filter(i => !archived.has(i.id));
+    if (searchTerms.length > 0) {
+      items = items.filter(i => matchesSearchTerms(workItemHaystack(i), searchTerms));
+    }
+    return items;
+  }, [allItems, archived, showArchived, searchTerms]);
 
   const filteredReviewItems = useMemo(() => {
-    if (repoFilter === "all") return reviewItems;
-    const repoSuffix = `/${repoFilter}`;
-    return reviewItems.filter(item =>
-      item.pr.repo.endsWith(repoSuffix) || item.pr.repo === repoFilter
-    );
-  }, [reviewItems, repoFilter]);
+    let items = reviewItems;
+    if (repoFilter !== "all") {
+      const repoSuffix = `/${repoFilter}`;
+      items = items.filter(item =>
+        item.pr.repo.endsWith(repoSuffix) || item.pr.repo === repoFilter,
+      );
+    }
+    if (searchTerms.length > 0) {
+      items = items.filter(i => matchesSearchTerms(reviewItemHaystack(i), searchTerms));
+    }
+    return items;
+  }, [reviewItems, repoFilter, searchTerms]);
 
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
@@ -2017,6 +2080,21 @@ function Home() {
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
         <div className="flex-1" />
+        <input
+          ref={searchInputRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setSearch("");
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder="Filter (F)"
+          aria-label="Filter items"
+          className="text-xs px-2 py-1 border border-border rounded bg-background text-text-primary placeholder:text-text-tertiary w-36 focus:w-56 focus:outline-none focus:border-text-tertiary transition-all"
+        />
         {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
