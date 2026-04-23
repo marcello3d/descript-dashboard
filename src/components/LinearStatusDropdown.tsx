@@ -124,15 +124,27 @@ export default function LinearStatusDropdown({
     : null;
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div
+      className={`relative flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors ${updating ? "opacity-50 pointer-events-none" : ""}`}
+      ref={dropdownRef}
+    >
       <button
         onClick={handleToggle}
-        className={`flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors ${updating ? "opacity-50 pointer-events-none" : ""}`}
-        title={`${issue.status} — click to change`}
+        className="inline-flex items-center leading-none"
+        title={`${issue.status} — click to change status`}
+        aria-label="Change Linear status"
       >
         <StatusIcon status={issue.status} />
-        <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
       </button>
+      <a
+        href={issue.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs leading-none text-text-tertiary font-mono hover:text-text-secondary transition-colors"
+        title={`Open ${issue.identifier} in Linear`}
+      >
+        {issue.identifier}
+      </a>
 
       {open && (
         <div className="absolute z-50 top-full mt-1 left-0 min-w-[180px] bg-surface border border-border rounded-lg shadow-lg py-1 max-h-[300px] overflow-y-auto">
