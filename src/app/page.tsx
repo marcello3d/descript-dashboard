@@ -610,12 +610,12 @@ function WorkItemTable({
   onToggleArchive: (id: string) => void;
   highlightedId: string | null;
 }) {
-  const colCount = 9;
+  const colCount = 8;
   return (
     <table className={`w-full ${dimmed ? "opacity-60" : ""}`}>
       <thead className={theadClass}>
         <tr className="border-b border-border">
-          <th className="w-[24px] px-0"></th>
+          <th className="w-[44px] px-0"></th>
           <th className="text-right py-2 px-2 w-[70px]">
             <span className="text-xs font-medium text-text-secondary">Updated</span>
           </th>
@@ -635,12 +635,11 @@ function WorkItemTable({
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
           </th>
-          <th className="w-[28px] px-0"></th>
         </tr>
       </thead>
       {groups.map(({ label, items, stackMetaMap }) => (
       <tbody key={label}>
-        {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
+        {groups.length > 1 && label && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
         {!collapsed.has(label) && items.map((item) => {
           const stackMeta = stackMetaMap?.get(item.id);
           const lastUpdated = getLastUpdated(item);
@@ -651,8 +650,11 @@ function WorkItemTable({
               data-item-id={item.id}
               data-highlight={highlightedId === item.id ? "true" : undefined}
             >
-              <td className="py-1.5 px-0 text-center w-[24px]">
-                <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
+              <td className="py-1.5 px-0 w-[44px]">
+                <div className="flex items-center justify-center gap-0.5">
+                  <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
+                  <ArchiveButton id={item.id} isArchived={archived.has(item.id)} onToggle={onToggleArchive} />
+                </div>
               </td>
               <td className="py-1.5 px-2 text-right">
                 {lastUpdated && (() => {
@@ -779,9 +781,6 @@ function WorkItemTable({
                   deletions={item.prs[0]?.deletions ?? item.agents[0]?.linesRemoved ?? 0}
                   url={(() => { const u = item.prs[0]?.url ?? item.linear?.prUrls?.[0]; return u ? `${u}/files` : null; })()}
                 />
-              </td>
-              <td className="py-1.5 px-0 text-center w-[28px]">
-                <ArchiveButton id={item.id} isArchived={archived.has(item.id)} onToggle={onToggleArchive} />
               </td>
             </tr>
           );
@@ -1887,8 +1886,9 @@ function Home() {
     if (typeof window === "undefined") return new Set<string>();
     try {
       const saved = localStorage.getItem("dashboard:collapsed");
-      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
-    } catch { return new Set<string>(); }
+      if (saved) return new Set(JSON.parse(saved));
+      return new Set<string>(["Archived"]);
+    } catch { return new Set<string>(["Archived"]); }
   });
   const toggleCollapsed = useCallback((label: string) => {
     setCollapsed(prev => {
@@ -1915,7 +1915,6 @@ function Home() {
       return next;
     });
   }, []);
-  const [showArchived, setShowArchived] = useState(false);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -1979,20 +1978,26 @@ function Home() {
     return items;
   }, [allUnfilteredItems, repoFilter, serviceFilter]);
 
-  const archivedCount = useMemo(() => allItems.filter(i => archived.has(i.id)).length, [allItems, archived]);
-
   const searchTerms = useMemo(
     () => search.trim().toLowerCase().split(/\s+/).filter(Boolean),
     [search],
   );
 
   const visibleItems = useMemo(() => {
-    let items = showArchived ? allItems : allItems.filter(i => !archived.has(i.id));
+    let items = allItems.filter(i => !archived.has(i.id));
     if (searchTerms.length > 0) {
       items = items.filter(i => matchesSearchTerms(workItemHaystack(i), searchTerms));
     }
     return items;
-  }, [allItems, archived, showArchived, searchTerms]);
+  }, [allItems, archived, searchTerms]);
+
+  const archivedVisibleItems = useMemo(() => {
+    let items = allItems.filter(i => archived.has(i.id));
+    if (searchTerms.length > 0) {
+      items = items.filter(i => matchesSearchTerms(workItemHaystack(i), searchTerms));
+    }
+    return items;
+  }, [allItems, archived, searchTerms]);
 
   const filteredReviewItems = useMemo(() => {
     let items = reviewItems;
@@ -2024,11 +2029,16 @@ function Home() {
   const displayGroups = useMemo(() => {
     const items = view === "date" ? visibleItems : open;
     const sorted = sortByDate(items);
-    if (view === "stage") return groupByAction(sorted, favorites);
-    if (view === "priority") return groupByPriority(sorted, favorites);
-    if (view === "stack") return groupByStack(sorted, favorites);
-    return [{ group: "other" as ActionGroup, label: "", items: sorted }];
-  }, [view, open, visibleItems, favorites]);
+    let groups: { group: ActionGroup; label: string; items: WorkItem[]; stackMetaMap?: Map<string, StackMeta> }[];
+    if (view === "stage") groups = groupByAction(sorted, favorites);
+    else if (view === "priority") groups = groupByPriority(sorted, favorites);
+    else if (view === "stack") groups = groupByStack(sorted, favorites);
+    else groups = [{ group: "other" as ActionGroup, label: "", items: sorted }];
+    if (archivedVisibleItems.length > 0) {
+      groups = [...groups, { group: "other" as ActionGroup, label: "Archived", items: sortByDate(archivedVisibleItems) }];
+    }
+    return groups;
+  }, [view, open, visibleItems, archivedVisibleItems, favorites]);
 
   const displayItems = displayGroups.flatMap(g => g.items);
 
@@ -2125,15 +2135,10 @@ function Home() {
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
-          {!isReview && archivedCount > 0 && (
+          {!isReview && archivedVisibleItems.length > 0 && (
             <>
               {open.length > 0 && <span> · </span>}
-              <button
-                onClick={() => setShowArchived(v => !v)}
-                className="text-text-muted hover:text-text-secondary transition-colors"
-              >
-                {showArchived ? `hide ${archivedCount} archived` : `${archivedCount} archived`}
-              </button>
+              <span className="text-text-muted">{archivedVisibleItems.length} archived</span>
             </>
           )}
         </div>
