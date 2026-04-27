@@ -51,6 +51,7 @@ export interface RawGitHubPR {
   state: string;
   url: string;
   updatedAt: string;
+  mergedAt: string | null;
   body: string | null;
   additions: number;
   deletions: number;
@@ -100,6 +101,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     closed: raw.state === "closed" && !raw.merged,
     url: raw.url,
     updatedAt: raw.updatedAt,
+    mergedAt: raw.mergedAt ?? null,
     reviewDecision,
     additions: raw.additions,
     deletions: raw.deletions,
@@ -226,6 +228,7 @@ export async function fetchRawAuthoredPRs(
             state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
+            mergedAt: pr.merged_at ?? null,
             body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
@@ -247,6 +250,7 @@ export async function fetchRawAuthoredPRs(
             state: item.state,
             url: item.html_url,
             updatedAt: item.updated_at,
+            mergedAt: item.pull_request?.merged_at ?? null,
             body: null,
             additions: 0,
             deletions: 0,
@@ -332,6 +336,7 @@ export async function fetchRawPrsByUrls(
             state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
+            mergedAt: pr.merged_at ?? null,
             body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
@@ -407,6 +412,7 @@ export async function fetchRawReviewRequestedPRs(
             state: pr.state,
             url: pr.html_url,
             updatedAt: pr.updated_at,
+            mergedAt: pr.merged_at ?? null,
             body: pr.body ?? null,
             additions: pr.additions,
             deletions: pr.deletions,
@@ -429,6 +435,7 @@ export async function fetchRawReviewRequestedPRs(
             state: "open",
             url: item.html_url,
             updatedAt: item.updated_at,
+            mergedAt: null,
             body: null,
             additions: 0,
             deletions: 0,
