@@ -1724,14 +1724,29 @@ function matchesSearchTerms(haystack: string, terms: string[]): boolean {
   return true;
 }
 
-function completedIssueHaystack(issue: LinearIssue): string {
-  return [issue.title, issue.identifier, issue.status, issue.assignee ?? ""]
-    .join("   ")
-    .toLowerCase();
+function completedItemHaystack(item: WorkItem): string {
+  const parts: string[] = [
+    item.title,
+    item.linear?.title ?? "",
+    item.linear?.identifier ?? "",
+    item.linear?.status ?? "",
+    ...item.prs.flatMap((pr) => [pr.title, pr.repo, pr.branch]),
+    ...item.agents.flatMap((a) => [a.name, a.repo, a.branch]),
+  ];
+  return parts.join("   ").toLowerCase();
 }
 
-function useCompletedIssues(active: boolean) {
-  const [issues, setIssues] = useState<LinearIssue[]>([]);
+function completedItemDate(item: WorkItem): string {
+  // Prefer the latest merged PR date; otherwise fall back to Linear's updatedAt.
+  let latest: string | null = null;
+  for (const pr of item.prs) {
+    if (pr.mergedAt && (!latest || pr.mergedAt > latest)) latest = pr.mergedAt;
+  }
+  return latest ?? item.linear?.updatedAt ?? "";
+}
+
+function useCompletedItems(active: boolean) {
+  const [items, setItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -1747,7 +1762,7 @@ function useCompletedIssues(active: boolean) {
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to load completed issues");
-      setIssues(json.issues ?? []);
+      setItems(json.items ?? []);
       setLoaded(true);
     } catch (e: any) {
       setError(e.message);
@@ -1765,31 +1780,31 @@ function useCompletedIssues(active: boolean) {
 
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
-  return { issues, loading, error, loaded, refresh };
+  return { items, loading, error, loaded, refresh };
 }
 
-type CompletedBucket = { label: string; items: LinearIssue[] };
+type CompletedBucket = { label: string; items: WorkItem[] };
 
-function bucketCompletedIssues(issues: LinearIssue[]): CompletedBucket[] {
+function bucketCompletedItems(items: WorkItem[]): CompletedBucket[] {
   const now = new Date();
-  // Start of today (local time)
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  // Start of this week (Monday)
-  const dow = (startOfToday.getDay() + 6) % 7; // 0 = Monday
+  const dow = (startOfToday.getDay() + 6) % 7;
   const startOfThisWeek = new Date(startOfToday);
   startOfThisWeek.setDate(startOfToday.getDate() - dow);
   const startOfLastWeek = new Date(startOfThisWeek);
   startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
 
-  const thisWeek: LinearIssue[] = [];
-  const lastWeek: LinearIssue[] = [];
-  const earlier: LinearIssue[] = [];
+  const sorted = [...items].sort((a, b) => completedItemDate(b).localeCompare(completedItemDate(a)));
 
-  for (const issue of issues) {
-    const d = new Date(issue.updatedAt);
-    if (d >= startOfThisWeek) thisWeek.push(issue);
-    else if (d >= startOfLastWeek) lastWeek.push(issue);
-    else earlier.push(issue);
+  const thisWeek: WorkItem[] = [];
+  const lastWeek: WorkItem[] = [];
+  const earlier: WorkItem[] = [];
+
+  for (const item of sorted) {
+    const d = new Date(completedItemDate(item));
+    if (d >= startOfThisWeek) thisWeek.push(item);
+    else if (d >= startOfLastWeek) lastWeek.push(item);
+    else earlier.push(item);
   }
 
   const buckets: CompletedBucket[] = [];
@@ -1808,13 +1823,13 @@ function CompletedTable({
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
 }) {
-  const colCount = 4;
+  const colCount = 5;
   return (
     <table className="w-full">
       <thead className={theadClass}>
         <tr className="border-b border-border">
-          <th className="text-right py-2 px-2 w-[100px]">
-            <span className="text-xs font-medium text-text-secondary">Updated</span>
+          <th className="text-right py-2 px-2 w-[110px]">
+            <span className="text-xs font-medium text-text-secondary">Merged</span>
           </th>
           <th className="text-left py-2 px-2">
             <span className="text-xs font-medium text-text-secondary">Item</span>
@@ -1825,8 +1840,17 @@ function CompletedTable({
               <span className="text-xs font-medium text-text-secondary">Linear</span>
             </span>
           </th>
-          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
-            <span className="text-xs font-medium text-text-secondary">Status</span>
+          <th className="text-left py-2 px-1 w-px whitespace-nowrap">
+            <span className="flex items-center gap-1.5 px-2">
+              <SiGithub className="w-3.5 h-3.5 text-text-secondary" />
+              <span className="text-xs font-medium text-text-secondary">GitHub</span>
+            </span>
+          </th>
+          <th className="text-left py-2 px-1 w-px whitespace-nowrap">
+            <span className="flex items-center gap-1.5 px-2">
+              <CursorIcon className="w-3.5 h-3.5 text-text-secondary" />
+              <span className="text-xs font-medium text-text-secondary">Cursor</span>
+            </span>
           </th>
         </tr>
       </thead>
@@ -1839,26 +1863,28 @@ function CompletedTable({
             collapsed={collapsed.has(label)}
             onToggle={() => onToggleCollapsed(label)}
           />
-          {!collapsed.has(label) && items.map((issue) => {
-            const { text, color } = timeAgo(issue.updatedAt);
+          {!collapsed.has(label) && items.map((item) => {
+            const issue = item.linear!;
+            const dateStr = completedItemDate(item);
+            const { text, color } = timeAgo(dateStr);
             return (
-              <tr key={issue.id} className={tableRowClass}>
+              <tr key={item.id} className={tableRowClass}>
                 <td className="py-1.5 px-2 text-right">
                   <span
                     className={`text-xs ${color} cursor-default hover:underline hover:decoration-dotted`}
-                    title={new Date(issue.updatedAt).toLocaleString()}
+                    title={new Date(dateStr).toLocaleString()}
                   >
                     {text}
                   </span>
                 </td>
                 <td className="py-1.5 px-2">
                   <a
-                    href={issue.url}
+                    href={item.prs[0]?.url ?? issue.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-text-primary hover:underline transition-colors line-clamp-1"
                   >
-                    {issue.title}
+                    {item.title}
                   </a>
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
@@ -1867,14 +1893,47 @@ function CompletedTable({
                     target="_blank"
                     rel="noopener noreferrer"
                     className={cellLinkFlex}
-                    title={`Open ${issue.identifier} in Linear`}
+                    title={`${issue.status} — open ${issue.identifier} in Linear`}
                   >
                     <StatusIcon status={issue.status} />
                     <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
                   </a>
                 </td>
-                <td className="py-1.5 px-2 whitespace-nowrap">
-                  <span className="text-xs text-text-secondary">{issue.status}</span>
+                <td className="py-1.5 px-1 whitespace-nowrap">
+                  {item.prs.length > 0 ? (
+                    <div className="flex flex-col gap-0.5">
+                      {item.prs.map((pr) => (
+                        <PrCellLink key={pr.id} pr={pr} />
+                      ))}
+                    </div>
+                  ) : issue.prUrls[0] ? (
+                    <a
+                      href={issue.prUrls[0]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cellLinkFlex}
+                    >
+                      <PrStatusIcon />
+                      <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(issue.prUrls[0])}</span>
+                    </a>
+                  ) : (
+                    <EmptyServiceCell><PrStatusIcon /></EmptyServiceCell>
+                  )}
+                </td>
+                <td className="py-1.5 px-1 whitespace-nowrap">
+                  {item.agents.length > 0 ? (
+                    <a
+                      href={item.agents[0].url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cellLinkFlex}
+                    >
+                      <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+                      <span className="text-xs text-text-tertiary">Agent</span>
+                    </a>
+                  ) : (
+                    <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
+                  )}
                 </td>
               </tr>
             );
@@ -2017,7 +2076,7 @@ function Home() {
   const isReview = tab === "review";
   const isCompleted = tab === "completed";
 
-  const completed = useCompletedIssues(isCompleted);
+  const completed = useCompletedItems(isCompleted);
   const setRepoFilter = useCallback((v: string) => { setRepoFilterState(v); setParam("repo", v, "descript"); }, [setParam]);
   const toggleServiceFilter = useCallback((svc: string) => {
     setServiceFilterState(prev => {
@@ -2177,12 +2236,12 @@ function Home() {
     return items;
   }, [reviewItems, repoFilter, searchTerms]);
 
-  const filteredCompletedIssues = useMemo(() => {
-    if (searchTerms.length === 0) return completed.issues;
-    return completed.issues.filter(i => matchesSearchTerms(completedIssueHaystack(i), searchTerms));
-  }, [completed.issues, searchTerms]);
-  const completedBuckets = useMemo(() => bucketCompletedIssues(filteredCompletedIssues), [filteredCompletedIssues]);
-  const completedTotal = filteredCompletedIssues.length;
+  const filteredCompletedItems = useMemo(() => {
+    if (searchTerms.length === 0) return completed.items;
+    return completed.items.filter(i => matchesSearchTerms(completedItemHaystack(i), searchTerms));
+  }, [completed.items, searchTerms]);
+  const completedBuckets = useMemo(() => bucketCompletedItems(filteredCompletedItems), [filteredCompletedItems]);
+  const completedTotal = filteredCompletedItems.length;
 
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];

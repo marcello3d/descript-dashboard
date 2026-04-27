@@ -24,6 +24,7 @@ export interface GitHubPR {
   closed: boolean;
   url: string;
   updatedAt: string;
+  mergedAt: string | null;
   additions: number;
   deletions: number;
   changedFiles: number;
