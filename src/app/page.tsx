@@ -369,7 +369,7 @@ function formatReviewSummary(items: ReviewItem[], long?: boolean): string {
   return parts.join(" · ");
 }
 
-function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapsed, onToggleCollapsed, highlightedId }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void; highlightedId: string | null }) {
+function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, archived, onToggleArchive, collapsed, onToggleCollapsed, highlightedId }: { items: ReviewItem[]; favorites: Set<string>; onToggleFavorite: (id: string) => void; archived: Set<string>; onToggleArchive: (id: string) => void; collapsed: Set<string>; onToggleCollapsed: (label: string) => void; highlightedId: string | null }) {
   const groups = useMemo(() => {
     const favs: ReviewItem[] = [];
     const directReady: ReviewItem[] = [];
@@ -379,8 +379,13 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
     // Fallback when a team-requested PR has no team data
     const teamReadyFallback: ReviewItem[] = [];
     const teamDraftFallback: ReviewItem[] = [];
+    const archivedItems: ReviewItem[] = [];
 
     for (const item of reviewItems) {
+      if (archived.has(item.id)) {
+        archivedItems.push(item);
+        continue;
+      }
       if (favorites.has(item.id)) {
         favs.push(item);
         continue;
@@ -417,8 +422,9 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
       if (g.draft.length > 0) groups.push({ label: `Team: ${g.label}`, items: g.draft, isDraft: true });
     }
     if (teamDraftFallback.length > 0) groups.push({ label: "Team requested", items: teamDraftFallback, isDraft: true });
+    if (archivedItems.length > 0) groups.push({ label: "Archived", items: archivedItems });
     return groups;
-  }, [reviewItems, favorites]);
+  }, [reviewItems, favorites, archived]);
   const colCount = 7;
   if (groups.length === 0) return null;
   return (
@@ -426,7 +432,7 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
       <table className="w-full">
         <thead className={theadClass}>
           <tr className="border-b border-border">
-            <th className="w-[24px] px-0"></th>
+            <th className="w-[44px] px-0"></th>
             <th className="text-right py-2 px-2 w-[70px]">
               <span className="text-xs font-medium text-text-secondary">Updated</span>
             </th>
@@ -452,8 +458,11 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, collapse
           {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(collapseKey)} onToggle={() => onToggleCollapsed(collapseKey)} isDraft={isDraft} />}
           {!collapsed.has(collapseKey) && items.map(item => (
             <tr key={item.id} className={tableRowClass} data-item-id={item.id} data-highlight={highlightedId === item.id ? "true" : undefined}>
-              <td className="py-1.5 px-0 text-center w-[24px]">
-                <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
+              <td className="py-1.5 px-0 w-[44px]">
+                <div className="flex items-center justify-center gap-0.5">
+                  <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
+                  <ArchiveButton id={item.id} isArchived={archived.has(item.id)} onToggle={onToggleArchive} />
+                </div>
               </td>
               <td className="py-1.5 px-2 text-right w-[70px]">
                 {(() => {
@@ -2265,6 +2274,15 @@ function Home() {
     return items;
   }, [reviewItems, repoFilter, searchTerms]);
 
+  const activeReviewItems = useMemo(
+    () => filteredReviewItems.filter(i => !archived.has(i.id)),
+    [filteredReviewItems, archived],
+  );
+  const archivedReviewItems = useMemo(
+    () => filteredReviewItems.filter(i => archived.has(i.id)),
+    [filteredReviewItems, archived],
+  );
+
   const filteredCompletedItems = useMemo(() => {
     if (searchTerms.length === 0) return completed.items;
     return completed.items.filter(i => matchesSearchTerms(completedItemHaystack(i), searchTerms));
@@ -2307,14 +2325,14 @@ function Home() {
     if (isCompleted) {
       summary = completedTotal > 0 ? `${completedTotal}` : "";
     } else if (isReview) {
-      summary = formatReviewSummary(filteredReviewItems);
+      summary = formatReviewSummary(activeReviewItems);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
       const SHORT_LABELS: Record<string, string> = { "Changes requested": "Changes", "Waiting": "Review" };
       summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
-  }, [isCompleted, completedTotal, isReview, filteredReviewItems, open]);
+  }, [isCompleted, completedTotal, isReview, activeReviewItems, open]);
 
   useEffect(() => {
     document.title = pageTitle;
@@ -2399,7 +2417,7 @@ function Home() {
         </div>
         <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
           {!isCompleted && repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
-          {isCompleted ? (completedBuckets.filter(b => b.items.length > 0).map(b => `${b.items.length} ${b.name.toLowerCase()}`).join(" · ")) : isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
+          {isCompleted ? (completedBuckets.filter(b => b.items.length > 0).map(b => `${b.items.length} ${b.name.toLowerCase()}`).join(" · ")) : isReview ? formatReviewSummary(activeReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
@@ -2408,6 +2426,12 @@ function Home() {
             <>
               {open.length > 0 && <span> · </span>}
               <span className="text-text-muted">{archivedVisibleItems.length} archived</span>
+            </>
+          )}
+          {isReview && archivedReviewItems.length > 0 && (
+            <>
+              {activeReviewItems.length > 0 && <span> · </span>}
+              <span className="text-text-muted">{archivedReviewItems.length} archived</span>
             </>
           )}
         </div>
@@ -2428,7 +2452,7 @@ function Home() {
 
       {isReview ? (
         <>
-          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} highlightedId={highlightedId} />
+          <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} archived={archived} onToggleArchive={toggleArchive} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} highlightedId={highlightedId} />
           {filteredReviewItems.length === 0 && !anyLoading && (
             <div className="text-center py-16 space-y-2">
               <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
