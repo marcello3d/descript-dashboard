@@ -1783,7 +1783,7 @@ function useCompletedItems(active: boolean) {
   return { items, loading, error, loaded, refresh };
 }
 
-type CompletedBucket = { label: string; items: WorkItem[] };
+type CompletedBucket = { name: string; label: string; items: WorkItem[] };
 
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -1836,10 +1836,10 @@ function bucketCompletedItems(items: WorkItem[]): CompletedBucket[] {
   }
 
   return [
-    { label: `This week (${fmtDateRange(startOfThisWeek, endOfThisWeek)})`, items: thisWeek },
-    { label: `Last week (${fmtDateRange(startOfLastWeek, endOfLastWeek)})`, items: lastWeek },
-    { label: `Week before last (${fmtDateRange(startOfWeekBeforeLast, endOfWeekBeforeLast)})`, items: weekBeforeLast },
-    { label: `Earlier (${fmtDateRange(earliestCutoff, endOfEarlier)})`, items: earlier },
+    { name: "This week", label: `This week (${fmtDateRange(startOfThisWeek, endOfThisWeek)})`, items: thisWeek },
+    { name: "Last week", label: `Last week (${fmtDateRange(startOfLastWeek, endOfLastWeek)})`, items: lastWeek },
+    { name: "Week before last", label: `Week before last (${fmtDateRange(startOfWeekBeforeLast, endOfWeekBeforeLast)})`, items: weekBeforeLast },
+    { name: "Past month", label: `Past month (${fmtDateRange(earliestCutoff, endOfEarlier)})`, items: earlier },
   ];
 }
 
@@ -2399,7 +2399,7 @@ function Home() {
         </div>
         <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
           {!isCompleted && repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
-          {isCompleted ? (completedBuckets.map(b => `${b.items.length} ${b.label.toLowerCase()}`).join(" · ")) : isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
+          {isCompleted ? (completedBuckets.filter(b => b.items.length > 0).map(b => `${b.items.length} ${b.name.toLowerCase()}`).join(" · ")) : isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
