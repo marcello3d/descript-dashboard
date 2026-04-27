@@ -1788,6 +1788,11 @@ type CompletedBucket = { label: string; items: WorkItem[] };
 const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function fmtDateRange(start: Date, endInclusive: Date): string {
+  const sameDay =
+    start.getFullYear() === endInclusive.getFullYear() &&
+    start.getMonth() === endInclusive.getMonth() &&
+    start.getDate() === endInclusive.getDate();
+  if (sameDay) return `${MONTH_ABBR[start.getMonth()]} ${start.getDate()}`;
   const sameMonth = start.getMonth() === endInclusive.getMonth() && start.getFullYear() === endInclusive.getFullYear();
   if (sameMonth) {
     return `${MONTH_ABBR[start.getMonth()]} ${start.getDate()}–${endInclusive.getDate()}`;
@@ -1808,8 +1813,7 @@ function bucketCompletedItems(items: WorkItem[]): CompletedBucket[] {
   // 30-day cutoff for the "earlier" bucket end
   const earliestCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const endOfThisWeek = new Date(startOfThisWeek);
-  endOfThisWeek.setDate(startOfThisWeek.getDate() + 6);
+  const endOfThisWeek = startOfToday;
   const endOfLastWeek = new Date(startOfLastWeek);
   endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
   const endOfWeekBeforeLast = new Date(startOfWeekBeforeLast);
