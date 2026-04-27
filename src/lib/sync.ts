@@ -28,11 +28,13 @@ export type SyncCallback = (progress: { step: number; totalSteps: number }) => v
 
 const TOTAL_STEPS = 10;
 const TTL_LINEAR = 5 * 60 * 1000;
-// GitHub TTLs are short because the notification poll drives refreshes every 60s.
-// Reviews and authored PRs feed review-request and PR-review-decision notifications respectively.
-const TTL_GITHUB = 60 * 1000;
+// notify-check uses GitHub /notifications with If-Modified-Since as a cheap signal,
+// so the underlying sync only runs when something actually changed. That lets these
+// TTLs match the client's 5-min refresh interval — page reloads within the window
+// hit the cache instead of GitHub, avoiding secondary rate limits.
+const TTL_GITHUB = 5 * 60 * 1000;
 const TTL_CURSOR = 2 * 60 * 1000;
-const TTL_GITHUB_REVIEWS = 60 * 1000;
+const TTL_GITHUB_REVIEWS = 5 * 60 * 1000;
 const TTL_LINEAR_REVIEWS = 5 * 60 * 1000;
 const TTL_LOOKUP = 5 * 60 * 1000;
 
