@@ -1724,6 +1724,167 @@ function matchesSearchTerms(haystack: string, terms: string[]): boolean {
   return true;
 }
 
+function completedIssueHaystack(issue: LinearIssue): string {
+  return [issue.title, issue.identifier, issue.status, issue.assignee ?? ""]
+    .join("   ")
+    .toLowerCase();
+}
+
+function useCompletedIssues(active: boolean) {
+  const [issues, setIssues] = useState<LinearIssue[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const fetchingRef = useRef(false);
+
+  const doFetch = useCallback(async (bypassCache: boolean) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const url = bypassCache ? "/api/completed-issues?fresh=1" : "/api/completed-issues";
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load completed issues");
+      setIssues(json.issues ?? []);
+      setLoaded(true);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (active && !loaded && !fetchingRef.current) {
+      doFetch(false);
+    }
+  }, [active, loaded, doFetch]);
+
+  const refresh = useCallback(() => doFetch(true), [doFetch]);
+
+  return { issues, loading, error, loaded, refresh };
+}
+
+type CompletedBucket = { label: string; items: LinearIssue[] };
+
+function bucketCompletedIssues(issues: LinearIssue[]): CompletedBucket[] {
+  const now = new Date();
+  // Start of today (local time)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Start of this week (Monday)
+  const dow = (startOfToday.getDay() + 6) % 7; // 0 = Monday
+  const startOfThisWeek = new Date(startOfToday);
+  startOfThisWeek.setDate(startOfToday.getDate() - dow);
+  const startOfLastWeek = new Date(startOfThisWeek);
+  startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+
+  const thisWeek: LinearIssue[] = [];
+  const lastWeek: LinearIssue[] = [];
+  const earlier: LinearIssue[] = [];
+
+  for (const issue of issues) {
+    const d = new Date(issue.updatedAt);
+    if (d >= startOfThisWeek) thisWeek.push(issue);
+    else if (d >= startOfLastWeek) lastWeek.push(issue);
+    else earlier.push(issue);
+  }
+
+  const buckets: CompletedBucket[] = [];
+  if (thisWeek.length > 0) buckets.push({ label: "This week", items: thisWeek });
+  if (lastWeek.length > 0) buckets.push({ label: "Last week", items: lastWeek });
+  if (earlier.length > 0) buckets.push({ label: "Last 30 days", items: earlier });
+  return buckets;
+}
+
+function CompletedTable({
+  buckets,
+  collapsed,
+  onToggleCollapsed,
+}: {
+  buckets: CompletedBucket[];
+  collapsed: Set<string>;
+  onToggleCollapsed: (label: string) => void;
+}) {
+  const colCount = 4;
+  return (
+    <table className="w-full">
+      <thead className={theadClass}>
+        <tr className="border-b border-border">
+          <th className="text-right py-2 px-2 w-[100px]">
+            <span className="text-xs font-medium text-text-secondary">Updated</span>
+          </th>
+          <th className="text-left py-2 px-2">
+            <span className="text-xs font-medium text-text-secondary">Item</span>
+          </th>
+          <th className="text-left py-2 px-1 w-px whitespace-nowrap">
+            <span className="flex items-center gap-1.5 px-2">
+              <SiLinear className="w-3.5 h-3.5 text-[#5E6AD2]" />
+              <span className="text-xs font-medium text-text-secondary">Linear</span>
+            </span>
+          </th>
+          <th className="text-left py-2 px-2 w-px whitespace-nowrap">
+            <span className="text-xs font-medium text-text-secondary">Status</span>
+          </th>
+        </tr>
+      </thead>
+      {buckets.map(({ label, items }) => (
+        <tbody key={label}>
+          <SectionHeader
+            label={label}
+            count={items.length}
+            colSpan={colCount}
+            collapsed={collapsed.has(label)}
+            onToggle={() => onToggleCollapsed(label)}
+          />
+          {!collapsed.has(label) && items.map((issue) => {
+            const { text, color } = timeAgo(issue.updatedAt);
+            return (
+              <tr key={issue.id} className={tableRowClass}>
+                <td className="py-1.5 px-2 text-right">
+                  <span
+                    className={`text-xs ${color} cursor-default hover:underline hover:decoration-dotted`}
+                    title={new Date(issue.updatedAt).toLocaleString()}
+                  >
+                    {text}
+                  </span>
+                </td>
+                <td className="py-1.5 px-2">
+                  <a
+                    href={issue.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-text-primary hover:underline transition-colors line-clamp-1"
+                  >
+                    {issue.title}
+                  </a>
+                </td>
+                <td className="py-1.5 px-1 whitespace-nowrap">
+                  <a
+                    href={issue.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cellLinkFlex}
+                    title={`Open ${issue.identifier} in Linear`}
+                  >
+                    <StatusIcon status={issue.status} />
+                    <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
+                  </a>
+                </td>
+                <td className="py-1.5 px-2 whitespace-nowrap">
+                  <span className="text-xs text-text-secondary">{issue.status}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      ))}
+    </table>
+  );
+}
+
 function Home() {
   const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   useNotificationPoll();
@@ -1768,7 +1929,7 @@ function Home() {
   const searchParams = useSearchParams();
 
 
-  type Tab = "tasks" | "review";
+  type Tab = "tasks" | "review" | "completed";
   type SortMode = "stage" | "priority" | "stack" | "date";
   const [tab, setTabState] = useState<Tab>("tasks");
   const [sort, setSortState] = useState<SortMode>("stage");
@@ -1803,7 +1964,7 @@ function Home() {
       if (legacyView === "review") { setTabState("review"); }
       else if (legacyView === "stage" || legacyView === "priority" || legacyView === "date") { setSortState(legacyView); }
     }
-    if (t) setTabState(t);
+    if (t === "tasks" || t === "review" || t === "completed") setTabState(t);
     if (s && (s === "stage" || s === "priority" || s === "stack" || s === "date")) setSortState(s);
     if (r && r !== repoFilter) setRepoFilterState(r);
     if (svc) setServiceFilterState(new Set(svc.split(",").filter(v => ALL_SERVICES.has(v))));
@@ -1854,6 +2015,9 @@ function Home() {
   const view = tab === "review" ? "review" as ViewMode : sort as ViewMode;
   const isOpen = sort === "stage" || sort === "priority";
   const isReview = tab === "review";
+  const isCompleted = tab === "completed";
+
+  const completed = useCompletedIssues(isCompleted);
   const setRepoFilter = useCallback((v: string) => { setRepoFilterState(v); setParam("repo", v, "descript"); }, [setParam]);
   const toggleServiceFilter = useCallback((svc: string) => {
     setServiceFilterState(prev => {
@@ -2013,6 +2177,13 @@ function Home() {
     return items;
   }, [reviewItems, repoFilter, searchTerms]);
 
+  const filteredCompletedIssues = useMemo(() => {
+    if (searchTerms.length === 0) return completed.issues;
+    return completed.issues.filter(i => matchesSearchTerms(completedIssueHaystack(i), searchTerms));
+  }, [completed.issues, searchTerms]);
+  const completedBuckets = useMemo(() => bucketCompletedIssues(filteredCompletedIssues), [filteredCompletedIssues]);
+  const completedTotal = filteredCompletedIssues.length;
+
   const { open, closed } = useMemo(() => {
     const open: WorkItem[] = [];
     const closed: WorkItem[] = [];
@@ -2043,9 +2214,11 @@ function Home() {
   const displayItems = displayGroups.flatMap(g => g.items);
 
   const pageTitle = useMemo(() => {
-    const section = isReview ? "Requested reviews" : "My tasks";
+    const section = isCompleted ? "Completed" : isReview ? "Requested reviews" : "My tasks";
     let summary = "";
-    if (isReview) {
+    if (isCompleted) {
+      summary = completedTotal > 0 ? `${completedTotal}` : "";
+    } else if (isReview) {
       summary = formatReviewSummary(filteredReviewItems);
     } else if (open.length > 0) {
       const stageGroups = groupByAction(sortByDate(open), new Set());
@@ -2053,7 +2226,7 @@ function Home() {
       summary = stageGroups.map(g => `${g.items.length} ${(SHORT_LABELS[g.label] || g.label).toLowerCase()}`).join(" · ");
     }
     return summary ? `${section} · ${summary}` : section;
-  }, [isReview, filteredReviewItems, open]);
+  }, [isCompleted, completedTotal, isReview, filteredReviewItems, open]);
 
   useEffect(() => {
     document.title = pageTitle;
@@ -2105,17 +2278,25 @@ function Home() {
           aria-label="Filter items"
           className="text-xs px-2 py-1 border border-border rounded bg-background text-text-primary placeholder:text-text-tertiary w-36 focus:w-56 focus:outline-none focus:border-text-tertiary transition-all"
         />
-        {!isReview && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
+        {!isReview && !isCompleted && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup
             options={[
-              { value: "stage" as ViewMode, label: "Status", hotkey: "s" },
-              { value: "priority" as ViewMode, label: "Priority", hotkey: "p" },
-              { value: "stack" as ViewMode, label: "Stack", hotkey: "k" },
-              { value: "date" as ViewMode, label: "All", hotkey: "a" },
+              { value: "stage", label: "Status", hotkey: "s" },
+              { value: "priority", label: "Priority", hotkey: "p" },
+              { value: "stack", label: "Stack", hotkey: "k" },
+              { value: "date", label: "All", hotkey: "a" },
+              { value: "completed", label: `Completed${completedTotal > 0 ? ` (${completedTotal})` : ""}`, hotkey: "c" },
             ]}
-            value={sort}
-            onChange={(v) => setSort(v as SortMode)}
+            value={isCompleted ? "completed" : sort}
+            onChange={(v) => {
+              if (v === "completed") {
+                setTab("completed");
+              } else {
+                if (isCompleted) setTab("tasks");
+                setSort(v as SortMode);
+              }
+            }}
           />
         )}
         <NotificationBell />
@@ -2129,13 +2310,13 @@ function Home() {
         </a>
         </div>
         <div className="text-sm text-text-tertiary mt-1 flex items-center gap-1">
-          {repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
-          {isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
+          {!isCompleted && repos.length > 1 && <><RepoFilter repos={repos} value={repoFilter} onChange={setRepoFilter} /><span>·</span></>}
+          {isCompleted ? (completedBuckets.map(b => `${b.items.length} ${b.label.toLowerCase()}`).join(" · ")) : isReview ? formatReviewSummary(filteredReviewItems, true) : (() => {
             if (open.length === 0) return "";
             const stageGroups = groupByAction(sortByDate(open), new Set());
             return stageGroups.map(g => `${g.items.length} ${g.label.toLowerCase()}`).join(" · ");
           })()}
-          {!isReview && archivedVisibleItems.length > 0 && (
+          {!isReview && !isCompleted && archivedVisibleItems.length > 0 && (
             <>
               {open.length > 0 && <span> · </span>}
               <span className="text-text-muted">{archivedVisibleItems.length} archived</span>
@@ -2166,6 +2347,22 @@ function Home() {
               {serviceErrors.length > 0 && (
                 <a href="/settings" className="inline-block text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors">Check Settings &rarr;</a>
               )}
+            </div>
+          )}
+        </>
+      ) : isCompleted ? (
+        <>
+          <CompletedTable
+            buckets={completedBuckets}
+            collapsed={collapsed}
+            onToggleCollapsed={toggleCollapsed}
+          />
+          {completed.error && (
+            <div className="text-center py-16 text-sm text-status-red">{completed.error}</div>
+          )}
+          {!completed.error && completedTotal === 0 && !completed.loading && completed.loaded && (
+            <div className="text-center py-16 text-sm text-text-tertiary">
+              No completed issues in the last 30 days
             </div>
           )}
         </>

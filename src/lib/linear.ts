@@ -188,3 +188,46 @@ export async function fetchRawAssignedIssues(
 
   return { issues: result, rateLimit };
 }
+
+export async function fetchRawCompletedIssues(
+  apiKey: string
+): Promise<RawLinearResult> {
+  const client = new LinearClient({ apiKey });
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const viewer = await client.viewer;
+  const issues = await viewer.assignedIssues({
+    first: 100,
+    filter: {
+      and: [
+        {
+          or: [
+            { state: { type: { eq: "completed" } } },
+            { state: { name: { eq: "Verify" } } },
+          ],
+        },
+        { updatedAt: { gte: cutoff } },
+      ],
+    },
+    orderBy: "updatedAt" as any,
+  });
+
+  const result = await Promise.all(issues.nodes.map(resolveIssue));
+
+  let rateLimit: LinearRateLimit | undefined;
+  try {
+    const rl = await client.rateLimitStatus;
+    if (rl.limits.length > 0) {
+      const lim = rl.limits[0];
+      rateLimit = {
+        cost: Math.round(lim.requestedAmount),
+        remaining: Math.round(lim.remainingAmount),
+        limit: Math.round(lim.allowedAmount),
+        resetAt: new Date(lim.reset).toISOString(),
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { issues: result, rateLimit };
+}
