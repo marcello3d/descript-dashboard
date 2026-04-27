@@ -1831,20 +1831,12 @@ function bucketCompletedItems(items: WorkItem[]): CompletedBucket[] {
     else earlier.push(item);
   }
 
-  const buckets: CompletedBucket[] = [];
-  if (thisWeek.length > 0) {
-    buckets.push({ label: `This week (${fmtDateRange(startOfThisWeek, endOfThisWeek)})`, items: thisWeek });
-  }
-  if (lastWeek.length > 0) {
-    buckets.push({ label: `Last week (${fmtDateRange(startOfLastWeek, endOfLastWeek)})`, items: lastWeek });
-  }
-  if (weekBeforeLast.length > 0) {
-    buckets.push({ label: `Week before last (${fmtDateRange(startOfWeekBeforeLast, endOfWeekBeforeLast)})`, items: weekBeforeLast });
-  }
-  if (earlier.length > 0) {
-    buckets.push({ label: `Earlier (${fmtDateRange(earliestCutoff, endOfEarlier)})`, items: earlier });
-  }
-  return buckets;
+  return [
+    { label: `This week (${fmtDateRange(startOfThisWeek, endOfThisWeek)})`, items: thisWeek },
+    { label: `Last week (${fmtDateRange(startOfLastWeek, endOfLastWeek)})`, items: lastWeek },
+    { label: `Week before last (${fmtDateRange(startOfWeekBeforeLast, endOfWeekBeforeLast)})`, items: weekBeforeLast },
+    { label: `Earlier (${fmtDateRange(earliestCutoff, endOfEarlier)})`, items: earlier },
+  ];
 }
 
 function CompletedTable({
