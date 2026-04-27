@@ -1785,32 +1785,65 @@ function useCompletedItems(active: boolean) {
 
 type CompletedBucket = { label: string; items: WorkItem[] };
 
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function fmtDateRange(start: Date, endInclusive: Date): string {
+  const sameMonth = start.getMonth() === endInclusive.getMonth() && start.getFullYear() === endInclusive.getFullYear();
+  if (sameMonth) {
+    return `${MONTH_ABBR[start.getMonth()]} ${start.getDate()}–${endInclusive.getDate()}`;
+  }
+  return `${MONTH_ABBR[start.getMonth()]} ${start.getDate()} – ${MONTH_ABBR[endInclusive.getMonth()]} ${endInclusive.getDate()}`;
+}
+
 function bucketCompletedItems(items: WorkItem[]): CompletedBucket[] {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dow = (startOfToday.getDay() + 6) % 7;
+  const dow = (startOfToday.getDay() + 6) % 7; // 0 = Monday
   const startOfThisWeek = new Date(startOfToday);
   startOfThisWeek.setDate(startOfToday.getDate() - dow);
   const startOfLastWeek = new Date(startOfThisWeek);
   startOfLastWeek.setDate(startOfThisWeek.getDate() - 7);
+  const startOfWeekBeforeLast = new Date(startOfLastWeek);
+  startOfWeekBeforeLast.setDate(startOfLastWeek.getDate() - 7);
+  // 30-day cutoff for the "earlier" bucket end
+  const earliestCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const endOfThisWeek = new Date(startOfThisWeek);
+  endOfThisWeek.setDate(startOfThisWeek.getDate() + 6);
+  const endOfLastWeek = new Date(startOfLastWeek);
+  endOfLastWeek.setDate(startOfLastWeek.getDate() + 6);
+  const endOfWeekBeforeLast = new Date(startOfWeekBeforeLast);
+  endOfWeekBeforeLast.setDate(startOfWeekBeforeLast.getDate() + 6);
+  const endOfEarlier = new Date(startOfWeekBeforeLast.getTime() - 1);
 
   const sorted = [...items].sort((a, b) => completedItemDate(b).localeCompare(completedItemDate(a)));
 
   const thisWeek: WorkItem[] = [];
   const lastWeek: WorkItem[] = [];
+  const weekBeforeLast: WorkItem[] = [];
   const earlier: WorkItem[] = [];
 
   for (const item of sorted) {
     const d = new Date(completedItemDate(item));
     if (d >= startOfThisWeek) thisWeek.push(item);
     else if (d >= startOfLastWeek) lastWeek.push(item);
+    else if (d >= startOfWeekBeforeLast) weekBeforeLast.push(item);
     else earlier.push(item);
   }
 
   const buckets: CompletedBucket[] = [];
-  if (thisWeek.length > 0) buckets.push({ label: "This week", items: thisWeek });
-  if (lastWeek.length > 0) buckets.push({ label: "Last week", items: lastWeek });
-  if (earlier.length > 0) buckets.push({ label: "Last 30 days", items: earlier });
+  if (thisWeek.length > 0) {
+    buckets.push({ label: `This week (${fmtDateRange(startOfThisWeek, endOfThisWeek)})`, items: thisWeek });
+  }
+  if (lastWeek.length > 0) {
+    buckets.push({ label: `Last week (${fmtDateRange(startOfLastWeek, endOfLastWeek)})`, items: lastWeek });
+  }
+  if (weekBeforeLast.length > 0) {
+    buckets.push({ label: `Week before last (${fmtDateRange(startOfWeekBeforeLast, endOfWeekBeforeLast)})`, items: weekBeforeLast });
+  }
+  if (earlier.length > 0) {
+    buckets.push({ label: `Earlier (${fmtDateRange(earliestCutoff, endOfEarlier)})`, items: earlier });
+  }
   return buckets;
 }
 
