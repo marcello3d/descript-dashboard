@@ -224,6 +224,11 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
         </a>
         <CopyBranchButton branch={pr.branch} />
       </span>
+      {pr.mergeReadiness?.ready && (
+        <span className="text-xs text-status-green font-medium ml-4">
+          Ready to merge
+        </span>
+      )}
       {pr.bugBotThreadCount > 0 && (
         <span className="text-xs text-red-500 font-medium ml-4">
           {pr.bugBotThreadCount} bug bot {pr.bugBotThreadCount === 1 ? "issue" : "issues"}
