@@ -85,8 +85,6 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     }
     if ([...byUser.values()].some(s => s === "CHANGES_REQUESTED")) {
       reviewDecision = "CHANGES_REQUESTED";
-    } else if (byUser.size > 0 && [...byUser.values()].every(s => s === "APPROVED")) {
-      reviewDecision = "APPROVED";
     } else if (byUser.size > 0) {
       reviewDecision = "REVIEW_REQUIRED";
     }
