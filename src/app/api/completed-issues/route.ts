@@ -10,6 +10,7 @@ import {
 } from "@/lib/github";
 import { transformAgents, type RawCursorAgent } from "@/lib/cursor";
 import { buildWorkItems } from "@/lib/work-items";
+import { workItemAnchor } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { getCached, setCache, dedupe, logApiCall } from "@/lib/cache";
 
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
     // Drop orphan items (PRs/agents that don't belong to any completed Linear issue).
     const completedItems = items.filter((it) => it.linear);
     for (const it of completedItems) {
-      it.id = it.linear!.identifier;
+      it.id = workItemAnchor(it);
     }
 
     return Response.json({ items: completedItems });
