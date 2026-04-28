@@ -75,6 +75,12 @@ function getDb(): Database.Database {
     if (hasTagsCol.c === 0) {
       db.exec("ALTER TABLE work_items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
     }
+    // Migrate any rows that still have the old random-UUID id to the stable anchor.
+    // Lets the client's localStorage favorites/archive (keyed by id) survive cache rebuilds.
+    db.exec(`
+      UPDATE work_items SET id = anchor WHERE id != anchor;
+      UPDATE review_items SET id = anchor WHERE id != anchor;
+    `);
     db.exec(`CREATE TABLE IF NOT EXISTS tags (tag TEXT PRIMARY KEY)`);
     db.exec(`
       CREATE TABLE IF NOT EXISTS sync_status (
@@ -151,13 +157,12 @@ export function upsertWorkItems(items: WorkItem[]): void {
     for (const item of items) {
       const anchor = workItemAnchor(item);
       const existing = findByAnchor.get(anchor) as { id: string; created_at: number; tags: string } | undefined;
-      const id = existing?.id ?? crypto.randomUUID();
       const createdAt = existing?.created_at ?? now;
       const existingTags: string[] = JSON.parse(existing?.tags ?? "[]");
       const migratedTags = tagsToMigrate.get(anchor) ?? [];
       const mergedTags = [...new Set([...existingTags, ...migratedTags])];
       insert.run(
-        id, anchor, item.title,
+        anchor, anchor, item.title,
         item.linear ? JSON.stringify(item.linear) : null,
         JSON.stringify(item.prs), JSON.stringify(item.agents),
         JSON.stringify(mergedTags), createdAt, now,
@@ -197,10 +202,9 @@ export function upsertReviewItems(items: ReviewItem[]): void {
     for (const item of items) {
       const anchor = reviewItemAnchor(item);
       const existing = findByAnchor.get(anchor) as { id: string; created_at: number } | undefined;
-      const id = existing?.id ?? crypto.randomUUID();
       const createdAt = existing?.created_at ?? now;
       insert.run(
-        id, anchor,
+        anchor, anchor,
         JSON.stringify(item.pr),
         item.linear ? JSON.stringify(item.linear) : null,
         item.requestType, createdAt, now,
