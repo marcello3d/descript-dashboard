@@ -1,6 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import { getCached, setCache } from "@/lib/cache";
-import type { GitHubPR } from "@/types";
+import { enrichMergeReadiness } from "@/lib/github-merge-readiness";
+import type { GitHubMergeReadiness, GitHubPR } from "@/types";
 
 const USER_NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day
 
@@ -61,6 +62,9 @@ export interface RawGitHubPR {
   requestedReviewers?: string[]; // individual logins requested for review
   requestedTeams?: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount?: number;
+  reviewDecision?: string | null;
+  checksState?: string | null;
+  mergeReadiness?: GitHubMergeReadiness;
 }
 
 export interface RawGitHubResult {
@@ -71,8 +75,8 @@ export interface RawGitHubResult {
 
 // Transform raw PR to the app's GitHubPR type
 export function transformPR(raw: RawGitHubPR): GitHubPR {
-  let reviewDecision: string | null = null;
-  if (!raw.draft && raw.reviews.length > 0) {
+  let reviewDecision: string | null = raw.reviewDecision ?? null;
+  if (!reviewDecision && !raw.draft && raw.reviews.length > 0) {
     const byUser = new Map<string, string>();
     for (const r of raw.reviews) {
       if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
@@ -81,8 +85,6 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     }
     if ([...byUser.values()].some(s => s === "CHANGES_REQUESTED")) {
       reviewDecision = "CHANGES_REQUESTED";
-    } else if (byUser.size > 0 && [...byUser.values()].every(s => s === "APPROVED")) {
-      reviewDecision = "APPROVED";
     } else if (byUser.size > 0) {
       reviewDecision = "REVIEW_REQUIRED";
     }
@@ -106,10 +108,19 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     additions: raw.additions,
     deletions: raw.deletions,
     changedFiles: raw.changedFiles,
-    checksState: null,
+    checksState: raw.checksState ?? null,
     requestedReviewers: raw.requestedReviewers ?? [],
     requestedTeams: raw.requestedTeams ?? [],
     bugBotThreadCount: raw.bugBotThreadCount ?? 0,
+    mergeReadiness: raw.mergeReadiness ?? {
+      ready: false,
+      state: "unknown",
+      reasons: raw.state === "open" && !raw.merged ? ["readiness unavailable"] : [],
+      mergeable: null,
+      mergeStateStatus: null,
+      requiredChecksState: null,
+      requiredChecks: [],
+    },
   };
 }
 
@@ -272,6 +283,8 @@ export async function fetchRawAuthoredPRs(
     if (pr) allPrs.push(pr);
   }
 
+  await enrichMergeReadiness(octokit, allPrs);
+
   // Get actual core cost from rate limit delta
   let rateLimit: RawGitHubResult["rateLimit"];
   let searchRateLimit: RawGitHubResult["searchRateLimit"];
@@ -352,6 +365,8 @@ export async function fetchRawPrsByUrls(
       if (pr) results.push(pr);
     }
   }
+
+  await enrichMergeReadiness(octokit, results);
 
   return results;
 }

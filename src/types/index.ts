@@ -11,6 +11,16 @@ export interface LinearIssue {
   prUrls: string[]; // GitHub PR URLs linked via attachments/relations
 }
 
+export interface GitHubMergeReadiness {
+  ready: boolean;
+  state: "ready" | "not_ready" | "unknown";
+  reasons: string[];
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  requiredChecksState: "SUCCESS" | "FAILURE" | "PENDING" | "UNKNOWN" | null;
+  requiredChecks: string[];
+}
+
 export interface GitHubPR {
   id: number;
   title: string;
@@ -33,6 +43,7 @@ export interface GitHubPR {
   requestedReviewers: string[]; // individual logins requested for review
   requestedTeams: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount: number; // unresolved review threads authored by cursor[bot]
+  mergeReadiness: GitHubMergeReadiness;
 }
 
 export interface CursorAgent {

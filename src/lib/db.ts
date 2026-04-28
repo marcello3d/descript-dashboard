@@ -44,6 +44,23 @@ interface ReviewItemRow {
   updated_at: number;
 }
 
+function withMergeReadiness(pr: GitHubPR): GitHubPR {
+  const partial = pr as GitHubPR & { mergeReadiness?: GitHubPR["mergeReadiness"] };
+  return {
+    ...pr,
+    checksState: pr.checksState ?? partial.mergeReadiness?.requiredChecksState ?? null,
+    mergeReadiness: partial.mergeReadiness ?? {
+      ready: false,
+      state: "unknown",
+      reasons: !pr.closed && !pr.merged ? ["readiness unavailable"] : [],
+      mergeable: null,
+      mergeStateStatus: null,
+      requiredChecksState: null,
+      requiredChecks: [],
+    },
+  };
+}
+
 function getDb(): Database.Database {
   if (!db) {
     db = new Database(DB_PATH);
@@ -100,7 +117,7 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
     id: row.id,
     title: row.title,
     linear: row.linear_data ? JSON.parse(row.linear_data) as LinearIssue : undefined,
-    prs: JSON.parse(row.prs_data) as GitHubPR[],
+    prs: (JSON.parse(row.prs_data) as GitHubPR[]).map(withMergeReadiness),
     agents: JSON.parse(row.agents_data) as CursorAgent[],
     tags: JSON.parse(row.tags) as string[],
   };
@@ -109,7 +126,7 @@ function rowToWorkItem(row: WorkItemRow): WorkItem {
 function rowToReviewItem(row: ReviewItemRow): ReviewItem {
   return {
     id: row.id,
-    pr: JSON.parse(row.pr_data) as GitHubPR,
+    pr: withMergeReadiness(JSON.parse(row.pr_data) as GitHubPR),
     linear: row.linear_data ? JSON.parse(row.linear_data) as LinearIssue : undefined,
     requestType: row.request_type as "individual" | "team",
   };
