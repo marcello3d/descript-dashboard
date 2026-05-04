@@ -214,7 +214,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
               title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"}`}
             >
               <FaBug className="w-2.5 h-2.5" />
-              {pr.bugBotThreadCount}
+              <span className="text-[11px]">{pr.bugBotThreadCount}</span>
             </span>
           )}
           <ReviewIcon decision={pr.reviewDecision} />
