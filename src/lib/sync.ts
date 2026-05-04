@@ -1,6 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import { getEnv } from "@/lib/env";
-import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fetchBugBotThreadCounts, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
+import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fetchBugBotThreads, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
 import { fetchRawAgents, transformAgents, type RawCursorAgent } from "@/lib/cursor";
 import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
@@ -283,10 +283,13 @@ async function fetchGitHub(force: boolean, errors: string[]) {
     logApiCall("github", "prs", "ok", Date.now() - start, { cost: rateLimit?.cost });
 
     try {
-      const bugBotCounts = await fetchBugBotThreadCounts(token, prs);
+      const bugBotThreads = await fetchBugBotThreads(token, prs);
       for (const pr of prs) {
-        const count = bugBotCounts.get(pr.id);
-        if (count) pr.bugBotThreadCount = count;
+        const urls = bugBotThreads.get(pr.id);
+        if (urls && urls.length > 0) {
+          pr.bugBotThreadCount = urls.length;
+          pr.bugBotThreadUrls = urls;
+        }
       }
     } catch { /* don't block sync on bug bot fetch failure */ }
 

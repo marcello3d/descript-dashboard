@@ -210,8 +210,23 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
           {pr.bugBotThreadCount > 0 && (
             <span
-              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-status-red/15 text-status-red text-[10px] font-medium leading-none"
-              title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"}`}
+              role="link"
+              tabIndex={0}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const target = pr.bugBotThreadUrls?.[0] ?? pr.url;
+                window.open(target, "_blank", "noopener,noreferrer");
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                e.stopPropagation();
+                const target = pr.bugBotThreadUrls?.[0] ?? pr.url;
+                window.open(target, "_blank", "noopener,noreferrer");
+              }}
+              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-status-red/15 text-status-red text-[10px] font-medium leading-none cursor-pointer hover:bg-status-red/25"
+              title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"} — click to open`}
             >
               <FaBug className="w-2.5 h-2.5" />
               <span className="text-[11px]">{pr.bugBotThreadCount}</span>
