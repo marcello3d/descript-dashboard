@@ -3,6 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
+import { FaBug } from "react-icons/fa";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
@@ -205,18 +206,17 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           className={cellLinkFlex}
           title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
         >
-          <span className="relative inline-flex">
-            <PrStatusIcon pr={pr} />
-            {pr.bugBotThreadCount > 0 && (
-              <span
-                className="absolute -top-1 -right-1 min-w-3 h-3 px-0.5 rounded-full bg-red-500 text-white text-[9px] font-semibold leading-none flex items-center justify-center"
-                title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"}`}
-              >
-                {pr.bugBotThreadCount}
-              </span>
-            )}
-          </span>
+          <PrStatusIcon pr={pr} />
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
+          {pr.bugBotThreadCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-status-red/15 text-status-red text-[10px] font-medium leading-none"
+              title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"}`}
+            >
+              <FaBug className="w-2.5 h-2.5" />
+              {pr.bugBotThreadCount}
+            </span>
+          )}
           <ReviewIcon decision={pr.reviewDecision} />
           {isStacked && (
             <button
