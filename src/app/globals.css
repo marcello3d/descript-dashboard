@@ -82,6 +82,17 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Anything interactive shows a pointer cursor by default. Tailwind v4's preflight
+   overrides the browser default of `cursor: pointer` on <button>, so without this
+   rule every button needs an explicit `cursor-pointer`. <a href> already gets a
+   pointer cursor from the browser. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+summary,
+label[for] {
+  cursor: pointer;
+}
+
 .toggle-active {
   background: var(--text-primary);
   color: var(--background);
