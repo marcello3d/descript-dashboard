@@ -101,14 +101,14 @@ function ChecksIcon({ state }: { state: string | null }) {
   }
 }
 
-function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; color: string } {
-  if (pr.merged) return { text: "merged", color: "text-status-purple" };
-  if (pr.draft) return { text: "draft", color: "text-text-tertiary" };
+function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; long: string; color: string } {
+  if (pr.merged) return { text: "merged", long: "Merged", color: "text-status-purple" };
+  if (pr.draft) return { text: "draft", long: "Draft", color: "text-text-tertiary" };
   switch (pr.reviewDecision) {
-    case "APPROVED": return { text: "approved", color: "text-status-green" };
-    case "CHANGES_REQUESTED": return { text: "changes", color: "text-status-red" };
-    case "REVIEW_REQUIRED": return { text: "needs review", color: "text-status-yellow" };
-    default: return { text: "open", color: "text-text-tertiary" };
+    case "APPROVED": return { text: "approved", long: "Approved", color: "text-status-green" };
+    case "CHANGES_REQUESTED": return { text: "changes", long: "Changes requested", color: "text-status-red" };
+    case "REVIEW_REQUIRED": return { text: "needs review", long: "Review required", color: "text-status-yellow" };
+    default: return { text: "open", long: "Open", color: "text-text-tertiary" };
   }
 }
 
@@ -204,7 +204,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           target="_blank"
           rel="noopener noreferrer"
           className={cellLinkFlex}
-          title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+          title={`${pr.title}\n${getPrStatusInfo(pr).long}${isStacked ? ` · into ${pr.baseBranch}` : ""}`}
         >
           <PrStatusIcon pr={pr} />
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
