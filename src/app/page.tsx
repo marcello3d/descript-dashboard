@@ -159,7 +159,7 @@ function UnifiedStatus({ item }: { item: WorkItem }) {
 }
 
 function getPrNumber(url: string): string {
-  return url.split("/").pop() ?? "";
+  return url.match(/\/pull\/(\d+)/)?.[1] ?? "";
 }
 
 const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
