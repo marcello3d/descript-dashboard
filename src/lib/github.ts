@@ -62,6 +62,7 @@ export interface RawGitHubPR {
   requestedReviewers?: string[]; // individual logins requested for review
   requestedTeams?: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount?: number;
+  bugBotThreadUrls?: string[];
   reviewDecision?: string | null;
   checksState?: string | null;
   mergeReadiness?: GitHubMergeReadiness;
@@ -111,7 +112,8 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     checksState: raw.checksState ?? null,
     requestedReviewers: raw.requestedReviewers ?? [],
     requestedTeams: raw.requestedTeams ?? [],
-    bugBotThreadCount: raw.bugBotThreadCount ?? 0,
+    bugBotThreadCount: raw.bugBotThreadUrls?.length ?? raw.bugBotThreadCount ?? 0,
+    bugBotThreadUrls: raw.bugBotThreadUrls ?? [],
     mergeReadiness: raw.mergeReadiness ?? {
       ready: false,
       state: "unknown",
@@ -489,7 +491,7 @@ const BUG_BOT_THREADS_QUERY = `
           nodes {
             isResolved
             comments(first: 1) {
-              nodes { author { login } }
+              nodes { author { login } url }
             }
           }
         }
@@ -500,15 +502,15 @@ const BUG_BOT_THREADS_QUERY = `
 
 const BUG_BOT_LOGIN = "cursor";
 
-export async function fetchBugBotThreadCounts(
+export async function fetchBugBotThreads(
   accessToken: string,
   prs: RawGitHubPR[]
-): Promise<Map<number, number>> {
+): Promise<Map<number, string[]>> {
   const octokit = new Octokit({ auth: accessToken });
-  const counts = new Map<number, number>();
+  const urls = new Map<number, string[]>();
 
   const openPrs = prs.filter(pr => pr.state === "open" && !pr.merged);
-  if (openPrs.length === 0) return counts;
+  if (openPrs.length === 0) return urls;
 
   const prNumberRe = /\/pull\/(\d+)$/;
   const BATCH_SIZE = 5;
@@ -529,19 +531,21 @@ export async function fetchBugBotThreadCounts(
           });
 
           const threads = result?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
-          const unresolvedCount = threads.filter((t: any) => {
-            if (t.isResolved) return false;
-            const author = t.comments?.nodes?.[0]?.author?.login;
-            return author === BUG_BOT_LOGIN;
-          }).length;
+          const unresolved: string[] = [];
+          for (const t of threads) {
+            if (t.isResolved) continue;
+            const first = t.comments?.nodes?.[0];
+            if (first?.author?.login !== BUG_BOT_LOGIN) continue;
+            if (first.url) unresolved.push(first.url);
+          }
 
-          if (unresolvedCount > 0) counts.set(pr.id, unresolvedCount);
+          if (unresolved.length > 0) urls.set(pr.id, unresolved);
         } catch { /* ignore per-PR failures */ }
       })
     );
   }
 
-  return counts;
+  return urls;
 }
 
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {

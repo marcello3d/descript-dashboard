@@ -3,6 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
+import { FaBug } from "react-icons/fa";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
 import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
@@ -100,14 +101,14 @@ function ChecksIcon({ state }: { state: string | null }) {
   }
 }
 
-function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; color: string } {
-  if (pr.merged) return { text: "merged", color: "text-status-purple" };
-  if (pr.draft) return { text: "draft", color: "text-text-tertiary" };
+function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; long: string; color: string } {
+  if (pr.merged) return { text: "merged", long: "Merged", color: "text-status-purple" };
+  if (pr.draft) return { text: "draft", long: "Draft", color: "text-text-tertiary" };
   switch (pr.reviewDecision) {
-    case "APPROVED": return { text: "approved", color: "text-status-green" };
-    case "CHANGES_REQUESTED": return { text: "changes", color: "text-status-red" };
-    case "REVIEW_REQUIRED": return { text: "needs review", color: "text-status-yellow" };
-    default: return { text: "open", color: "text-text-tertiary" };
+    case "APPROVED": return { text: "approved", long: "Approved", color: "text-status-green" };
+    case "CHANGES_REQUESTED": return { text: "changes", long: "Changes requested", color: "text-status-red" };
+    case "REVIEW_REQUIRED": return { text: "needs review", long: "Review required", color: "text-status-yellow" };
+    default: return { text: "open", long: "Open", color: "text-text-tertiary" };
   }
 }
 
@@ -203,7 +204,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           target="_blank"
           rel="noopener noreferrer"
           className={cellLinkFlex}
-          title={getPrStatusInfo(pr).text + (isStacked ? ` · into ${pr.baseBranch}` : "")}
+          title={`${getPrStatusInfo(pr).long}: ${pr.title}${isStacked ? ` · into ${pr.baseBranch}` : ""}`}
         >
           <PrStatusIcon pr={pr} />
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
@@ -222,16 +223,23 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
             </button>
           )}
         </a>
+        {pr.bugBotThreadCount > 0 && (
+          <a
+            href={pr.bugBotThreadUrls?.[0] ?? pr.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-status-red/15 text-status-red text-[10px] font-medium leading-none hover:bg-status-red/25"
+            title={`${pr.bugBotThreadCount} bug bot ${pr.bugBotThreadCount === 1 ? "issue" : "issues"} — click to open`}
+          >
+            <FaBug className="w-2.5 h-2.5" />
+            <span className="text-[11px]">{pr.bugBotThreadCount}</span>
+          </a>
+        )}
         <CopyBranchButton branch={pr.branch} />
       </span>
       {pr.mergeReadiness?.ready && (
         <span className="text-xs text-status-green font-medium ml-4">
           Ready to merge
-        </span>
-      )}
-      {pr.bugBotThreadCount > 0 && (
-        <span className="text-xs text-red-500 font-medium ml-4">
-          {pr.bugBotThreadCount} bug bot {pr.bugBotThreadCount === 1 ? "issue" : "issues"}
         </span>
       )}
     </div>

@@ -43,6 +43,7 @@ export interface GitHubPR {
   requestedReviewers: string[]; // individual logins requested for review
   requestedTeams: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount: number; // unresolved review threads authored by cursor[bot]
+  bugBotThreadUrls: string[]; // direct comment URLs for those threads
   mergeReadiness: GitHubMergeReadiness;
 }
 
