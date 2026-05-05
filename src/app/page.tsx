@@ -160,7 +160,7 @@ function UnifiedStatus({ item }: { item: WorkItem }) {
 }
 
 function getPrNumber(url: string): string {
-  return url.split("/").pop() ?? "";
+  return url.match(/\/pull\/(\d+)/)?.[1] ?? "";
 }
 
 const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
@@ -250,7 +250,7 @@ function CopyBranchButton({ branch }: { branch: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className={`${iconButtonClass} opacity-0 group-hover:opacity-100`}
+      className={`${iconButtonClass} rounded hover:bg-fill-muted opacity-0 group-hover:opacity-100`}
       title={`Copy branch: ${branch}`}
       aria-label={`Copy branch name: ${branch}`}
       onClick={(e) => {
