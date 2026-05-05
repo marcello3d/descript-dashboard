@@ -88,6 +88,18 @@ function getDb(): Database.Database {
         updated_at INTEGER NOT NULL
       )
     `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS completed_work_items (
+        id TEXT PRIMARY KEY,
+        anchor TEXT UNIQUE NOT NULL,
+        title TEXT NOT NULL,
+        linear_data TEXT,
+        prs_data TEXT NOT NULL DEFAULT '[]',
+        agents_data TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
     const hasTagsCol = db.prepare("SELECT COUNT(*) as c FROM pragma_table_info('work_items') WHERE name = 'tags'").get() as { c: number };
     if (hasTagsCol.c === 0) {
       db.exec("ALTER TABLE work_items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
@@ -196,6 +208,64 @@ export function getWorkItems(): WorkItem[] {
 export function getWorkItemByAnchor(anchor: string): WorkItem | null {
   const row = getDb().prepare("SELECT * FROM work_items WHERE anchor = ?").get(anchor) as WorkItemRow | undefined;
   return row ? rowToWorkItem(row) : null;
+}
+
+// --- Completed Work Items ---
+
+interface CompletedWorkItemRow {
+  id: string;
+  anchor: string;
+  title: string;
+  linear_data: string | null;
+  prs_data: string;
+  agents_data: string;
+  created_at: number;
+  updated_at: number;
+}
+
+function rowToCompletedWorkItem(row: CompletedWorkItemRow): WorkItem {
+  return {
+    id: row.id,
+    title: row.title,
+    linear: row.linear_data ? JSON.parse(row.linear_data) as LinearIssue : undefined,
+    prs: (JSON.parse(row.prs_data) as GitHubPR[]).map(withMergeReadiness),
+    agents: JSON.parse(row.agents_data) as CursorAgent[],
+    tags: [],
+  };
+}
+
+export function upsertCompletedWorkItems(items: WorkItem[]): void {
+  const d = getDb();
+  const findByAnchor = d.prepare("SELECT created_at FROM completed_work_items WHERE anchor = ?");
+  const insert = d.prepare(
+    "INSERT OR REPLACE INTO completed_work_items (id, anchor, title, linear_data, prs_data, agents_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const now = Date.now();
+  const currentAnchors = new Set(items.map(workItemAnchor));
+  const tx = d.transaction(() => {
+    const allAnchors = d.prepare("SELECT anchor FROM completed_work_items").all() as { anchor: string }[];
+    for (const { anchor } of allAnchors) {
+      if (!currentAnchors.has(anchor)) {
+        d.prepare("DELETE FROM completed_work_items WHERE anchor = ?").run(anchor);
+      }
+    }
+    for (const item of items) {
+      const anchor = workItemAnchor(item);
+      const existing = findByAnchor.get(anchor) as { created_at: number } | undefined;
+      const createdAt = existing?.created_at ?? now;
+      insert.run(
+        anchor, anchor, item.title,
+        item.linear ? JSON.stringify(item.linear) : null,
+        JSON.stringify(item.prs), JSON.stringify(item.agents),
+        createdAt, now,
+      );
+    }
+  });
+  tx();
+}
+
+export function getCompletedWorkItems(): WorkItem[] {
+  return (getDb().prepare("SELECT * FROM completed_work_items").all() as CompletedWorkItemRow[]).map(rowToCompletedWorkItem);
 }
 
 // --- Review Items ---
@@ -320,6 +390,7 @@ export function resetAll(): void {
   d.exec(`
     DELETE FROM work_items;
     DELETE FROM review_items;
+    DELETE FROM completed_work_items;
     DELETE FROM cache;
     DELETE FROM sync_status;
     DELETE FROM api_calls;
