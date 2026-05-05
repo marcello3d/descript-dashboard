@@ -242,7 +242,7 @@ function CopyBranchButton({ branch }: { branch: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className={`${iconButtonClass} opacity-0 group-hover:opacity-100`}
+      className={`${iconButtonClass} rounded hover:bg-fill-muted opacity-0 group-hover:opacity-100`}
       title={`Copy branch: ${branch}`}
       aria-label={`Copy branch name: ${branch}`}
       onClick={(e) => {
