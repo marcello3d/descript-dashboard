@@ -204,7 +204,7 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           target="_blank"
           rel="noopener noreferrer"
           className={cellLinkFlex}
-          title={`${pr.title}\n${getPrStatusInfo(pr).long}${isStacked ? ` · into ${pr.baseBranch}` : ""}`}
+          title={`${getPrStatusInfo(pr).long}: ${pr.title}${isStacked ? ` · into ${pr.baseBranch}` : ""}`}
         >
           <PrStatusIcon pr={pr} />
           <span className="text-xs text-text-tertiary font-mono">#{getPrNumber(pr.url)}</span>
