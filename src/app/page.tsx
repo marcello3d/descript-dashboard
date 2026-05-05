@@ -1774,6 +1774,14 @@ function useCompletedItems(active: boolean) {
   const [loaded, setLoaded] = useState(false);
   const fetchingRef = useRef(false);
 
+  const applyChunk = useCallback((json: any) => {
+    if (Array.isArray(json.items)) setItems(json.items);
+    if (Array.isArray(json.errors) && json.errors.length > 0) {
+      setError(json.errors.join("; "));
+    }
+    if (json.done) setLoaded(true);
+  }, []);
+
   const doFetch = useCallback(async (bypassCache: boolean) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
@@ -1782,17 +1790,39 @@ function useCompletedItems(active: boolean) {
     try {
       const url = bypassCache ? "/api/completed-issues?fresh=1" : "/api/completed-issues";
       const res = await fetch(url, { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to load completed issues");
-      setItems(json.items ?? []);
-      setLoaded(true);
+      if (!res.body) {
+        const json = await res.json();
+        applyChunk({ ...json, done: true });
+      } else {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop()!;
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              applyChunk(JSON.parse(line));
+            } catch {}
+          }
+        }
+        if (buffer.trim()) {
+          try {
+            applyChunk(JSON.parse(buffer));
+          } catch {}
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, []);
+  }, [applyChunk]);
 
   useEffect(() => {
     if (active && !loaded && !fetchingRef.current) {
@@ -2367,13 +2397,16 @@ function Home() {
           onChange={(v) => setTab(v as Tab)}
         />
         <button
-          onClick={refreshAll}
-          disabled={anyLoading}
+          onClick={() => {
+            refreshAll();
+            if (isCompleted) completed.refresh();
+          }}
+          disabled={anyLoading || (isCompleted && completed.loading)}
           className={`${iconButtonClass} disabled:opacity-50`}
           title="Refresh all"
           aria-label="Refresh all"
         >
-          <RefreshIcon className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`} />
+          <RefreshIcon className={`w-4 h-4 ${anyLoading || (isCompleted && completed.loading) ? "animate-spin" : ""}`} />
         </button>
         <span className="text-[11px] text-text-tertiary tabular-nums" suppressHydrationWarning>
           {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
