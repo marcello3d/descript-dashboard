@@ -30,10 +30,7 @@ jobs:
       - run: npx tsc --noEmit
 
   lint:
-    # Informational only until the pre-existing lint debt is cleaned up.
-    # Promote to a required status check on `main` once it's green.
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

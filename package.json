@@ -13,7 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:dev": "npm run electron:build && electron .",
-    "electron:dist": "next build --webpack && node scripts/prepare-standalone.js && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
+    "electron:dist": "next build --webpack && node scripts/prepare-standalone.cjs && npm run electron:build && node scripts/bundle-node.cjs && electron-builder --mac --config"
   },
   "build": {
     "appId": "com.descript.dashboard",

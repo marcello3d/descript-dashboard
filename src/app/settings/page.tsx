@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { SiLinear, SiGithub } from "react-icons/si";
 import { useToast } from "@/components/Toast";
+import { errorMessage } from "@/lib/errors";
 import { getPermissionState, requestPermission } from "@/lib/notifications";
 import { CursorIcon } from "@/components/icons";
 
@@ -60,12 +62,12 @@ const KEY_CONFIG = [
 ];
 
 function NotificationSettings({ data, onToggle }: { data: SettingsData | null; onToggle: (key: keyof NotificationPrefs) => void }) {
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
+  // Lazy initializer reads Notification.permission at mount; "default" is the
+  // SSR fallback because the API isn't available there.
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
+    () => (typeof window === "undefined" ? "default" : getPermissionState()),
+  );
   const { toast } = useToast();
-
-  useEffect(() => {
-    setPermission(getPermissionState());
-  }, []);
 
   const handleRequestPermission = useCallback(async () => {
     const result = await requestPermission();
@@ -158,12 +160,16 @@ export default function SettingsPage() {
       const res = await fetch("/api/settings");
       const json = await res.json();
       setData(json);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errorMessage(e));
     }
   }, []);
 
   useEffect(() => {
+    // fetchSettings sets state synchronously (and asynchronously after the
+    // network round-trip); the on-mount fetch needs both, and the cascading
+    // render hit is acceptable here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSettings();
   }, [fetchSettings]);
 
@@ -189,9 +195,10 @@ export default function SettingsPage() {
       toast("success", "Settings saved — redirecting…");
       // Navigate back with fresh=1 so the dashboard re-fetches with new keys
       setTimeout(() => { window.location.href = "/?fresh=1"; }, 800);
-    } catch (e: any) {
-      setError(e.message);
-      toast("error", e.message);
+    } catch (e) {
+      const msg = errorMessage(e);
+      setError(msg);
+      toast("error", msg);
     } finally {
       setSaving(false);
     }
@@ -216,9 +223,10 @@ export default function SettingsPage() {
           return next;
         });
         toast("info", "Key removed");
-      } catch (e: any) {
-        setError(e.message);
-        toast("error", e.message);
+      } catch (e) {
+        const msg = errorMessage(e);
+        setError(msg);
+        toast("error", msg);
       } finally {
         setSaving(false);
       }
@@ -240,8 +248,8 @@ export default function SettingsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to update");
       setData((prev) => prev ? { ...prev, notifications: json.notifications } : prev);
-    } catch (e: any) {
-      toast("error", e.message);
+    } catch (e) {
+      toast("error", errorMessage(e));
     }
   }, [data, toast]);
 
@@ -249,12 +257,12 @@ export default function SettingsPage() {
     <div className="w-full max-w-xl mx-auto px-4 py-8">
       <div className="h-[38px]" />
       <div className="flex items-center gap-3 mb-6">
-        <a
+        <Link
           href="/"
           className="text-text-tertiary hover:text-text-secondary transition-colors text-sm"
         >
           &larr; Dashboard
-        </a>
+        </Link>
         <h1 className="text-lg font-bold text-text-primary">Settings</h1>
       </div>
 
@@ -349,12 +357,12 @@ export default function SettingsPage() {
         >
           {saving ? "Saving..." : "Save"}
         </button>
-        <a
+        <Link
           href="/"
           className="text-sm text-text-tertiary hover:text-text-secondary transition-colors ml-auto"
         >
           Back to Dashboard
-        </a>
+        </Link>
       </div>
 
       {/* Danger Zone */}

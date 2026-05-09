@@ -138,10 +138,10 @@ export function getRecentApiCalls(limit = 50): RecentApiCall[] {
 
 // In-flight request deduplication: if the same key is already being fetched,
 // return the existing promise instead of starting a new request.
-const inflight = new Map<string, Promise<any>>();
+const inflight = new Map<string, Promise<unknown>>();
 
 export function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const existing = inflight.get(key);
+  const existing = inflight.get(key) as Promise<T> | undefined;
   if (existing) return existing;
   const promise = fn().finally(() => inflight.delete(key));
   inflight.set(key, promise);

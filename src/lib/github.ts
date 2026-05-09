@@ -435,8 +435,8 @@ export async function fetchRawReviewRequestedPRs(
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
             reviews: [],
-            requestedReviewers: (pr.requested_reviewers ?? []).map((r: any) => r.login),
-            requestedTeams: (pr.requested_teams ?? []).map((t: any) => ({ slug: t.slug, name: t.name ?? t.slug })),
+            requestedReviewers: (pr.requested_reviewers ?? []).map((r) => r.login),
+            requestedTeams: (pr.requested_teams ?? []).map((t) => ({ slug: t.slug, name: t.name ?? t.slug })),
           } satisfies RawGitHubPR;
         } catch {
           return {
@@ -483,6 +483,19 @@ export async function fetchRawReviewRequestedPRs(
   return { prs: allPrs, viewerLogin };
 }
 
+interface BugBotThreadsResult {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: {
+          isResolved: boolean;
+          comments: { nodes: { author: { login: string } | null; url: string }[] };
+        }[];
+      };
+    };
+  };
+}
+
 const BUG_BOT_THREADS_QUERY = `
   query($owner: String!, $repo: String!, $number: Int!) {
     repository(owner: $owner, name: $repo) {
@@ -524,7 +537,7 @@ export async function fetchBugBotThreads(
           if (!m) return;
           const number = parseInt(m[1], 10);
 
-          const result: any = await octokit.graphql(BUG_BOT_THREADS_QUERY, {
+          const result = await octokit.graphql<BugBotThreadsResult>(BUG_BOT_THREADS_QUERY, {
             owner: pr.owner,
             repo: pr.repo,
             number,

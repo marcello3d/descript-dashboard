@@ -1,4 +1,4 @@
-import { LinearClient } from "@linear/sdk";
+import { LinearClient, PaginationOrderBy, type Issue } from "@linear/sdk";
 import type { LinearIssue } from "@/types";
 
 // Raw resolved data from Linear SDK (plain object, JSON-serializable)
@@ -20,7 +20,7 @@ export interface RawLinearIssue {
 
 const COMMENT_URL_RE = /https?:\/\/(?:[a-z0-9.-]*\.)?(?:github\.com\/[^\s)]+\/pull\/\d+|cursor\.com\/agents\/[^\s)]+)/gi;
 
-async function resolveIssue(issue: any): Promise<RawLinearIssue> {
+async function resolveIssue(issue: Issue): Promise<RawLinearIssue> {
   const state = await issue.state;
   const assigneeObj = await issue.assignee;
   const [attachments, comments] = await Promise.all([
@@ -131,7 +131,7 @@ export async function fetchRawSubscribedIssues(
         { state: { type: { nin: ["completed", "canceled"] } } },
       ],
     },
-    orderBy: "updatedAt" as any,
+    orderBy: PaginationOrderBy.UpdatedAt,
   });
 
   return Promise.all(issues.nodes.map(resolveIssue));
@@ -233,7 +233,7 @@ export async function fetchRawCompletedIssues(
         { updatedAt: { gte: cutoff } },
       ],
     },
-    orderBy: "updatedAt" as any,
+    orderBy: PaginationOrderBy.UpdatedAt,
   });
 
   const result = await Promise.all(issues.nodes.map(resolveIssue));

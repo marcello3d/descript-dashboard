@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { StatusIcon } from "./LinearStatus";
 import { useToast } from "./Toast";
+import { errorMessage } from "@/lib/errors";
 import type { LinearIssue } from "@/types";
 
 interface WorkflowState {
@@ -47,9 +48,10 @@ export default function LinearStatusDropdown({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to fetch states");
       setStates(data.states);
-    } catch (e: any) {
-      setError(e.message);
-      toast("error", e.message);
+    } catch (e) {
+      const msg = errorMessage(e);
+      setError(msg);
+      toast("error", msg);
     } finally {
       setLoading(false);
     }
@@ -87,9 +89,10 @@ export default function LinearStatusDropdown({
         if (!res.ok) throw new Error(data.error ?? "Failed to update status");
         onStatusChanged?.(data.statusName);
         setOpen(false);
-      } catch (e: any) {
-        setError(e.message);
-        toast("error", e.message);
+      } catch (e) {
+        const msg = errorMessage(e);
+        setError(msg);
+        toast("error", msg);
       } finally {
         setUpdating(false);
       }

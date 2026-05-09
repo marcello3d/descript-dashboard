@@ -4,6 +4,7 @@ import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fet
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
 import { fetchRawAgents, fetchRawAgentsByIds, transformAgents, type RawCursorAgent } from "@/lib/cursor";
 import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
+import { errorMessage } from "@/lib/errors";
 import { buildWorkItems, buildReviewItems, findMissingCursorAgentIds, findMissingLinearIds, findMissingPrUrls } from "@/lib/work-items";
 import {
   upsertWorkItems,
@@ -153,8 +154,8 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
       if (extraRaw.length > 0) {
         rawLinear = [...rawLinear, ...extraRaw];
       }
-    } catch (e: any) {
-      errors.push(`linear-lookup: ${e.message}`);
+    } catch (e) {
+      errors.push(`linear-lookup: ${errorMessage(e)}`);
     }
   }
   onProgress?.({ step: currentStep, totalSteps: TOTAL_STEPS });
@@ -186,8 +187,8 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
       if (extraRaw.length > 0) {
         rawGithub = [...rawGithub, ...extraRaw];
       }
-    } catch (e: any) {
-      errors.push(`github-pr-lookup: ${e.message}`);
+    } catch (e) {
+      errors.push(`github-pr-lookup: ${errorMessage(e)}`);
     }
   }
   onProgress?.({ step: currentStep, totalSteps: TOTAL_STEPS });
@@ -221,8 +222,8 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
         if (extraRaw.length > 0) {
           rawCursor = [...rawCursor, ...extraRaw];
         }
-      } catch (e: any) {
-        errors.push(`cursor-agent-lookup: ${e.message}`);
+      } catch (e) {
+        errors.push(`cursor-agent-lookup: ${errorMessage(e)}`);
       }
     }
   }
@@ -258,8 +259,8 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
         if (extraRaw.length > 0) {
           rawReviewIssues = [...rawReviewIssues, ...extraRaw];
         }
-      } catch (e: any) {
-        errors.push(`linear-review-lookup: ${e.message}`);
+      } catch (e) {
+        errors.push(`linear-review-lookup: ${errorMessage(e)}`);
       }
     }
   }
@@ -303,8 +304,8 @@ async function fetchLinear(force: boolean, errors: string[]) {
     logApiCall("linear", "issues", "ok", Date.now() - start, { cost: rateLimit?.cost });
     setCache("linear:raw:issues", issues, TTL_LINEAR);
     return { raw: issues, rateLimit };
-  } catch (e: any) {
-    errors.push(`linear: ${e.message}`);
+  } catch (e) {
+    errors.push(`linear: ${errorMessage(e)}`);
     return { raw: [] as RawLinearIssue[], rateLimit: undefined };
   }
 }
@@ -331,8 +332,8 @@ async function fetchGitHub(force: boolean, errors: string[]) {
 
     setCache("github:raw:prs", prs, TTL_GITHUB);
     return { raw: prs, rateLimit, searchRateLimit };
-  } catch (e: any) {
-    errors.push(`github: ${e.message}`);
+  } catch (e) {
+    errors.push(`github: ${errorMessage(e)}`);
     let rl: RateLimit | undefined;
     try {
       const octokit = new Octokit({ auth: token });
@@ -354,8 +355,8 @@ async function fetchCursor(errors: string[]) {
     logApiCall("cursor", "agents", "ok", Date.now() - start);
     setCache("cursor:raw:agents", agents, TTL_CURSOR);
     return { raw: agents };
-  } catch (e: any) {
-    errors.push(`cursor: ${e.message}`);
+  } catch (e) {
+    errors.push(`cursor: ${errorMessage(e)}`);
     return { raw: [] as RawCursorAgent[] };
   }
 }
@@ -370,8 +371,8 @@ async function fetchGitHubReviews(force: boolean, errors: string[]) {
     logApiCall("github", "reviews", "ok", Date.now() - start);
     setCache("github:raw:reviewPrs", prs, TTL_GITHUB_REVIEWS);
     return { raw: prs, viewerLogin };
-  } catch (e: any) {
-    errors.push(`github-reviews: ${e.message}`);
+  } catch (e) {
+    errors.push(`github-reviews: ${errorMessage(e)}`);
     return { raw: [] as RawGitHubPR[], viewerLogin: "" };
   }
 }
@@ -386,8 +387,8 @@ async function fetchLinearReviews(errors: string[]) {
     logApiCall("linear", "reviews", "ok", Date.now() - start);
     setCache("linear:raw:reviewIssues", issues, TTL_LINEAR_REVIEWS);
     return { raw: issues };
-  } catch (e: any) {
-    errors.push(`linear-reviews: ${e.message}`);
+  } catch (e) {
+    errors.push(`linear-reviews: ${errorMessage(e)}`);
     return { raw: [] as RawLinearIssue[] };
   }
 }

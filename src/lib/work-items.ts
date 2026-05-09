@@ -181,7 +181,6 @@ export function buildReviewItems(
   issues: LinearIssue[],
   viewerLogin: string
 ): ReviewItem[] {
-  const idRe = /[A-Z]+-\d+/gi;
   return prs.map(pr => {
     let linear = issues.find(i => i.prUrls.includes(pr.url));
     if (!linear) {

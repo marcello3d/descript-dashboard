@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { BrowserWindow, Menu } from 'electron'
 import { DEV_PORT } from './constants'
 
 function sendKey(key: string): void {
