@@ -2080,6 +2080,15 @@ function Home() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Cmd/Ctrl+F hijacks the browser's find: focus our search box and
+      // select any existing text. Fires regardless of current focus.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        const el = searchInputRef.current;
+        if (el) { el.focus(); el.select(); }
+        return;
+      }
+      // Plain "f" focuses search, but only when not typing in another field.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key.toLowerCase() === "f") {
