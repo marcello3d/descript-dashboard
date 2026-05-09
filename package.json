@@ -8,6 +8,9 @@
     "build": "next build",
     "start": "next start -p 4080",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:dev": "npm run electron:build && electron .",
     "electron:dist": "next build --webpack && node scripts/prepare-standalone.js && npm run electron:build && node scripts/bundle-node.js && electron-builder --mac --config"
@@ -62,11 +65,14 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.5",
     "electron": "^41.3.0",
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.4",
+    "msw": "^2.14.5",
     "tailwindcss": "^4.2.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   }
 }
