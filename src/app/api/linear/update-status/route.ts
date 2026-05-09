@@ -1,5 +1,6 @@
 import { updateIssueStatus } from "@/lib/linear";
 import { invalidateCache } from "@/lib/cache";
+import { errorMessage } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
 
 export async function POST(request: Request) {
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     invalidateCache("linear:raw:issues");
     invalidateCache("linear:raw:reviews");
     return Response.json(result);
-  } catch (e: any) {
-    return Response.json({ error: e.message }, { status: 502 });
+  } catch (e) {
+    return Response.json({ error: errorMessage(e) }, { status: 502 });
   }
 }

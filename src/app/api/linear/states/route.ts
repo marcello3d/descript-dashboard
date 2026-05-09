@@ -1,4 +1,5 @@
 import { fetchWorkflowStatesForIssue } from "@/lib/linear";
+import { errorMessage } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
 
 export async function GET(request: Request) {
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   try {
     const states = await fetchWorkflowStatesForIssue(apiKey, issueId);
     return Response.json({ states });
-  } catch (e: any) {
-    return Response.json({ error: e.message }, { status: 502 });
+  } catch (e) {
+    return Response.json({ error: errorMessage(e) }, { status: 502 });
   }
 }

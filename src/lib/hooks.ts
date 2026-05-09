@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { errorMessage } from "@/lib/errors";
 import type { ServiceResponse } from "@/types";
 
 export function useServiceData<T>(endpoint: string, intervalMs = 300000) {
@@ -36,8 +37,8 @@ export function useServiceData<T>(endpoint: string, intervalMs = 300000) {
         setError(json.error ?? null);
         setRateLimit(json.rateLimit ?? null);
         lastFetchRef.current = Date.now();
-      } catch (e: any) {
-        setError(e.message);
+      } catch (e) {
+        setError(errorMessage(e));
       } finally {
         setLoading(false);
         fetchingRef.current = false;
@@ -49,8 +50,10 @@ export function useServiceData<T>(endpoint: string, intervalMs = 300000) {
   // Manual refresh always bypasses cache
   const refresh = useCallback(() => doFetch(true), [doFetch]);
 
-  // Initial load + interval uses cache
+  // Initial load + interval uses cache. doFetch flips loading state
+  // synchronously; one cascading render on mount is the right tradeoff.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     doFetch(false);
     const id = setInterval(() => doFetch(false), intervalMs);
     return () => clearInterval(id);

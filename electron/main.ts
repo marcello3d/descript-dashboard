@@ -46,8 +46,6 @@ function createWindow(): BrowserWindow {
 
 function startNext(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const projectRoot = isDev ? process.cwd() : app.getAppPath()
-
     let cmd: string
     let args: string[]
 

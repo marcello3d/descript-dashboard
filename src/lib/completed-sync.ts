@@ -19,6 +19,7 @@ import {
   setSyncStatus,
 } from "@/lib/db";
 import { getCached, setCache, dedupe, logApiCall } from "@/lib/cache";
+import { errorMessage } from "@/lib/errors";
 
 const LINEAR_CACHE_KEY = "linear:raw:completedIssues";
 const PR_CACHE_KEY = "github:raw:completedPrs";
@@ -54,7 +55,7 @@ export async function syncCompleted(opts: {
   onProgress?.({ step: 1, totalSteps: TOTAL_STEPS });
 
   // Step 1: fetch Linear completed issues
-  let cached = force ? null : getCached<RawLinearResult>(LINEAR_CACHE_KEY);
+  const cached = force ? null : getCached<RawLinearResult>(LINEAR_CACHE_KEY);
   let rawIssues: RawLinearIssue[] = cached?.issues ?? [];
   if (!cached) {
     try {
@@ -63,9 +64,10 @@ export async function syncCompleted(opts: {
       logApiCall("linear", "completed_issues", "ok", Date.now() - start, { cost: result.rateLimit?.cost });
       setCache(LINEAR_CACHE_KEY, result, TTL_LINEAR_COMPLETED);
       rawIssues = result.issues;
-    } catch (e: any) {
-      logApiCall("linear", "completed_issues", "error", 0, { error: e.message });
-      errors.push(`linear-completed: ${e.message}`);
+    } catch (e) {
+      const msg = errorMessage(e);
+      logApiCall("linear", "completed_issues", "error", 0, { error: msg });
+      errors.push(`linear-completed: ${msg}`);
       onProgress?.({ step: TOTAL_STEPS, totalSteps: TOTAL_STEPS });
       return { errors };
     }
@@ -106,9 +108,10 @@ export async function syncCompleted(opts: {
           if (!mergedIds.has(pr.id)) merged.push(pr);
         }
         setCache(PR_CACHE_KEY, merged, TTL_GITHUB_COMPLETED);
-      } catch (e: any) {
-        logApiCall("github", "completed_prs", "error", 0, { error: e.message });
-        errors.push(`github-completed: ${e.message}`);
+      } catch (e) {
+        const msg = errorMessage(e);
+        logApiCall("github", "completed_prs", "error", 0, { error: msg });
+        errors.push(`github-completed: ${msg}`);
       }
     }
   }

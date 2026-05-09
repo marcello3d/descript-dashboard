@@ -5,9 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
 import { FaBug } from "react-icons/fa";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
-import { getLastUpdated, getLastUpdatedSource } from "@/lib/work-items";
+import { getLastUpdated } from "@/lib/work-items";
+import { errorMessage } from "@/lib/errors";
 import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
-import LinearStatus, { StatusIcon } from "@/components/LinearStatus";
+import { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
 import { useToast } from "@/components/Toast";
 import {
@@ -85,22 +86,6 @@ function PriorityBadge({ priority }: { priority: number }) {
   );
 }
 
-function ChecksIcon({ state }: { state: string | null }) {
-  if (!state) return null;
-  switch (state) {
-    case "SUCCESS":
-      return <span className="text-status-green" title="Checks passing">&#10003;</span>;
-    case "FAILURE":
-    case "ERROR":
-      return <span className="text-status-red" title="Checks failing">&#10005;</span>;
-    case "PENDING":
-    case "EXPECTED":
-      return <span className="text-status-yellow" title="Checks pending">&#9679;</span>;
-    default:
-      return null;
-  }
-}
-
 function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: string | null }): { text: string; long: string; color: string } {
   if (pr.merged) return { text: "merged", long: "Merged", color: "text-status-purple" };
   if (pr.draft) return { text: "draft", long: "Draft", color: "text-text-tertiary" };
@@ -110,53 +95,6 @@ function getPrStatusInfo(pr: { merged: boolean; draft: boolean; reviewDecision: 
     case "REVIEW_REQUIRED": return { text: "needs review", long: "Review required", color: "text-status-yellow" };
     default: return { text: "open", long: "Open", color: "text-text-tertiary" };
   }
-}
-
-function ReviewBadge({ decision, draft, merged, checksState }: { decision: string | null; draft: boolean; merged: boolean; checksState: string | null }) {
-  const { text, color } = getPrStatusInfo({ merged, draft, reviewDecision: decision });
-  const label = <span className={`text-xs ${color}`}>{text}</span>;
-  return (
-    <span className="inline-flex items-center gap-1">
-      {label}
-      {!merged && <span className="text-[10px]"><ChecksIcon state={checksState} /></span>}
-    </span>
-  );
-}
-
-function UnifiedStatus({ item }: { item: WorkItem }) {
-  const linearIcon = item.linear
-    ? <StatusIcon status={item.linear.status} />
-    : <StatusIcon status="In Progress" />;
-
-  // PR exists → show Linear icon + GitHub-derived status
-  const pr = item.prs[0];
-  if (pr) {
-    const { text, color } = getPrStatusInfo(pr);
-    const label = <span className={`text-xs ${color}`}>PR {text}</span>;
-    return <span className="inline-flex items-center gap-1 leading-none">{linearIcon}{label}</span>;
-  }
-
-  // No PR, has Linear → show icon + Linear status text
-  if (item.linear) {
-    return (
-      <span className="inline-flex items-center gap-1 leading-none">
-        {linearIcon}
-        <span className="text-xs text-text-secondary">{item.linear.status}</span>
-      </span>
-    );
-  }
-
-  // Only Cursor agent (no linear/PR) → show backlog icon + "No PR"
-  if (item.agents.length > 0) {
-    return (
-      <span className="inline-flex items-center gap-1 leading-none">
-        <StatusIcon status="Backlog" />
-        <span className="text-xs text-text-tertiary">No PR</span>
-      </span>
-    );
-  }
-
-  return linearIcon;
 }
 
 function getPrNumber(url: string): string {
@@ -551,10 +489,11 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
       setState("done");
       if (data.agent?.url) window.open(data.agent.url, "_blank");
       onCreated();
-    } catch (e: any) {
+    } catch (e) {
+      const msg = errorMessage(e);
       setState("error");
-      setError(e.message);
-      toast("error", `Failed to create agent: ${e.message}`);
+      setError(msg);
+      toast("error", `Failed to create agent: ${msg}`);
     }
   }
 
@@ -1082,6 +1021,21 @@ interface ApiStatRow {
 
 type RateLimitInfo = { name: string; cost?: number; remaining: number; limit: number; resetAt: string };
 
+type RateLimitMap = { cost?: number; remaining: number; limit: number; resetAt: string };
+
+interface WorkItemsResponse {
+  items?: WorkItem[];
+  reviewItems?: ReviewItem[];
+  viewerLogin?: string;
+  allTags?: string[];
+  rateLimits?: { github?: RateLimitMap; githubSearch?: RateLimitMap; linear?: RateLimitMap };
+  stats?: ApiStatRow[];
+  recent?: ApiCallRecord[];
+  errors?: string[];
+  progress?: { step: number; totalSteps: number };
+  done?: boolean;
+}
+
 function resetIn(resetAt: string): string {
   const ms = new Date(resetAt).getTime() - Date.now();
   if (ms <= 0) return "now";
@@ -1217,7 +1171,7 @@ function useWorkItems(intervalMs = 300000) {
   const fetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
-  const applyChunk = useCallback((json: any) => {
+  const applyChunk = useCallback((json: WorkItemsResponse) => {
     setItems(json.items ?? []);
     setReviewItems(json.reviewItems ?? []);
     if (json.viewerLogin) setViewerLogin(json.viewerLogin);
@@ -1274,8 +1228,8 @@ function useWorkItems(intervalMs = 300000) {
         }
       }
       lastFetchRef.current = Date.now();
-    } catch (e: any) {
-      setErrors([e.message]);
+    } catch (e) {
+      setErrors([errorMessage(e)]);
     } finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -1288,6 +1242,9 @@ function useWorkItems(intervalMs = 300000) {
     registerServiceWorker();
     // If arriving with ?fresh=1 (e.g. after saving settings), force a bypass
     const isFresh = new URLSearchParams(window.location.search).get("fresh") === "1";
+    // doFetch flips loading state synchronously; the one extra render on mount
+    // is the right tradeoff for a "fetch on load" hook here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     doFetch(isFresh);
     if (isFresh) {
       // Clean up the URL param
@@ -1671,12 +1628,12 @@ function BlockerTags({
 }
 
 function NotificationBell() {
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("granted");
+  // Read permission once at mount via lazy initializer — getPermissionState
+  // touches the browser API, which is unsafe during SSR.
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
+    () => (typeof window === "undefined" ? "granted" : getPermissionState()),
+  );
   const { toast } = useToast();
-
-  useEffect(() => {
-    setPermission(getPermissionState());
-  }, []);
 
   // Don't render if already granted or unsupported
   if (permission === "granted" || permission === "unsupported") return null;
@@ -1774,7 +1731,7 @@ function useCompletedItems(active: boolean) {
   const [loaded, setLoaded] = useState(false);
   const fetchingRef = useRef(false);
 
-  const applyChunk = useCallback((json: any) => {
+  const applyChunk = useCallback((json: { items?: WorkItem[]; errors?: string[]; done?: boolean }) => {
     if (Array.isArray(json.items)) setItems(json.items);
     if (Array.isArray(json.errors) && json.errors.length > 0) {
       setError(json.errors.join("; "));
@@ -1816,8 +1773,8 @@ function useCompletedItems(active: boolean) {
           } catch {}
         }
       }
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -2026,7 +1983,7 @@ function CompletedTable({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewItems, viewerLogin, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   useNotificationPoll();
   const { toast } = useToast();
 
@@ -2060,10 +2017,9 @@ function Home() {
     return () => clearInterval(id);
   }, []);
 
-  const [isElectron, setIsElectron] = useState(false);
-  useEffect(() => {
-    if (navigator.userAgent.includes("Electron")) setIsElectron(true);
-  }, []);
+  const [isElectron] = useState(
+    () => typeof navigator !== "undefined" && navigator.userAgent.includes("Electron"),
+  );
   const titlebarHeight = isElectron ? 38 : 0;
 
   const searchParams = useSearchParams();
@@ -2071,10 +2027,27 @@ function Home() {
 
   type Tab = "tasks" | "review" | "completed";
   type SortMode = "stage" | "priority" | "stack" | "date";
-  const [tab, setTabState] = useState<Tab>("tasks");
-  const [sort, setSortState] = useState<SortMode>("stage");
-  const [repoFilter, setRepoFilterState] = useState("descript");
-  const [serviceFilter, setServiceFilterState] = useState<Set<string>>(new Set<string>());
+  // Initial state seeded from URL search params (including the legacy "view"
+  // alias); subsequent updates flow through setParam, which writes back.
+  const [tab, setTabState] = useState<Tab>(() => {
+    const t = searchParams.get("tab");
+    if (t === "tasks" || t === "review" || t === "completed") return t;
+    if (searchParams.get("view") === "review") return "review";
+    return "tasks";
+  });
+  const [sort, setSortState] = useState<SortMode>(() => {
+    const s = searchParams.get("sort");
+    if (s === "stage" || s === "priority" || s === "stack" || s === "date") return s;
+    const legacy = searchParams.get("view");
+    if (legacy === "stage" || legacy === "priority" || legacy === "date") return legacy;
+    return "stage";
+  });
+  const [repoFilter, setRepoFilterState] = useState(() => searchParams.get("repo") ?? "descript");
+  const [serviceFilter, setServiceFilterState] = useState<Set<string>>(() => {
+    const svc = searchParams.get("svc");
+    if (!svc) return new Set<string>();
+    return new Set(svc.split(",").filter((v) => ALL_SERVICES.has(v)));
+  });
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -2104,23 +2077,7 @@ function Home() {
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, []);
 
-  // Sync from URL on mount
-  useEffect(() => {
-    const t = searchParams.get("tab") as Tab;
-    const s = searchParams.get("sort") as SortMode;
-    const r = searchParams.get("repo");
-    const svc = searchParams.get("svc");
-    // Migrate legacy "view" param
-    const legacyView = searchParams.get("view") as string;
-    if (legacyView) {
-      if (legacyView === "review") { setTabState("review"); }
-      else if (legacyView === "stage" || legacyView === "priority" || legacyView === "date") { setSortState(legacyView); }
-    }
-    if (t === "tasks" || t === "review" || t === "completed") setTabState(t);
-    if (s && (s === "stage" || s === "priority" || s === "stack" || s === "date")) setSortState(s);
-    if (r && r !== repoFilter) setRepoFilterState(r);
-    if (svc) setServiceFilterState(new Set(svc.split(",").filter(v => ALL_SERVICES.has(v))));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // (URL → state sync happens via the useState initializers above.)
 
   const setParam = useCallback((key: string, value: string, defaultValue: string) => {
     const params = new URLSearchParams(window.location.search);
@@ -2165,7 +2122,6 @@ function Home() {
 
   const setSort = useCallback((s: SortMode) => { setSortState(s); setParam("sort", s, "stage"); }, [setParam]);
   const view = tab === "review" ? "review" as ViewMode : sort as ViewMode;
-  const isOpen = sort === "stage" || sort === "priority";
   const isReview = tab === "review";
   const isCompleted = tab === "completed";
 
@@ -2345,18 +2301,10 @@ function Home() {
   const completedBuckets = useMemo(() => bucketCompletedItems(filteredCompletedItems), [filteredCompletedItems]);
   const completedTotal = filteredCompletedItems.length;
 
-  const { open, closed } = useMemo(() => {
-    const open: WorkItem[] = [];
-    const closed: WorkItem[] = [];
-    for (const item of visibleItems) {
-      if (isItemClosed(item)) {
-        closed.push(item);
-      } else {
-        open.push(item);
-      }
-    }
-    return { open, closed };
-  }, [visibleItems]);
+  const open = useMemo(
+    () => visibleItems.filter((item) => !isItemClosed(item)),
+    [visibleItems],
+  );
 
   // Counts ignoring search, used to render fractions like "3/5" in the tab labels.
   const openTotalUnfiltered = useMemo(

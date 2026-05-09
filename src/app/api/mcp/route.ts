@@ -11,6 +11,7 @@ import {
   resetSyncStatus,
 } from "@/lib/db";
 import { invalidateCache } from "@/lib/cache";
+import { errorMessage } from "@/lib/errors";
 import { fetchWorkflowStatesForIssue, updateIssueStatus } from "@/lib/linear";
 import { createAgent, transformAgent } from "@/lib/cursor";
 
@@ -35,8 +36,8 @@ function createMcpServer(): McpServer {
     try {
       const result = await sync({ force: args.fresh });
       errors.push(...result.errors);
-    } catch (e: any) {
-      errors.push(`sync: ${e.message}`);
+    } catch (e) {
+      errors.push(`sync: ${errorMessage(e)}`);
     }
     const items = getWorkItems();
     return {
@@ -55,8 +56,8 @@ function createMcpServer(): McpServer {
     try {
       const result = await sync({ force: args.fresh });
       errors.push(...result.errors);
-    } catch (e: any) {
-      errors.push(`sync: ${e.message}`);
+    } catch (e) {
+      errors.push(`sync: ${errorMessage(e)}`);
     }
     const reviewItems = getReviewItems();
     return {
@@ -111,9 +112,9 @@ function createMcpServer(): McpServer {
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ error: e.message }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ error: errorMessage(e) }) }],
         isError: true,
       };
     }
@@ -137,9 +138,9 @@ function createMcpServer(): McpServer {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ states }) }],
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ error: e.message }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ error: errorMessage(e) }) }],
         isError: true,
       };
     }
@@ -167,9 +168,9 @@ function createMcpServer(): McpServer {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ agent }) }],
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ error: e.message }) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ error: errorMessage(e) }) }],
         isError: true,
       };
     }
