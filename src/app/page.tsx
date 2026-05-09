@@ -2584,6 +2584,28 @@ function Home() {
         </>
       )}
 
+      {(() => {
+        const visibleCount = isReview
+          ? filteredReviewItems.length
+          : isCompleted
+            ? completedTotal
+            : displayItems.length;
+        if (search.trim() && visibleCount > 0) {
+          return (
+            <div className="text-center py-4 text-xs text-text-tertiary">
+              Filtering by <span className="text-text-secondary">&ldquo;{search}&rdquo;</span>
+              {" · "}
+              <button
+                onClick={() => setSearch("")}
+                className="text-text-secondary hover:text-text-primary hover:underline transition-colors"
+              >
+                Clear search
+              </button>
+            </div>
+          );
+        }
+        return null;
+      })()}
     </div>
   );
 }
