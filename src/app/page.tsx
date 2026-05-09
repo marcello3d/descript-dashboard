@@ -2371,7 +2371,6 @@ function Home() {
     }
     return items.length;
   }, [reviewItems, repoFilter]);
-  const completedTotalUnfiltered = completed.items.length;
   const isSearching = searchTerms.length > 0;
 
   const displayGroups = useMemo(() => {
@@ -2483,7 +2482,7 @@ function Home() {
               { value: "priority", label: "Priority", hotkey: "p" },
               { value: "stack", label: "Stack", hotkey: "k" },
               { value: "date", label: "All", hotkey: "a" },
-              { value: "completed", label: `Completed${formatTabCount(completedTotal, completedTotalUnfiltered, isSearching)}`, hotkey: "c" },
+              { value: "completed", label: "Completed", hotkey: "c" },
             ]}
             value={isCompleted ? "completed" : sort}
             onChange={(v) => {
