@@ -2081,9 +2081,12 @@ function Home() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       // Cmd/Ctrl+F hijacks the browser's find: focus our search box and
-      // select any existing text. Fires regardless of current focus.
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+      // select any existing text. Capture phase + stopImmediatePropagation
+      // so we beat any other handler racing for the same shortcut.
+      const isFindKey = (e.code === "KeyF" || e.key.toLowerCase() === "f");
+      if (isFindKey && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         const el = searchInputRef.current;
         if (el) { el.focus(); el.select(); }
         return;
@@ -2091,14 +2094,14 @@ function Home() {
       // Plain "f" focuses search, but only when not typing in another field.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.toLowerCase() === "f") {
+      if (isFindKey) {
         e.preventDefault();
         const el = searchInputRef.current;
         if (el) { el.focus(); el.select(); }
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, []);
 
   // Sync from URL on mount
