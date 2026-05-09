@@ -2346,6 +2346,22 @@ function Home() {
     return { open, closed };
   }, [visibleItems]);
 
+  // Counts ignoring search, used to render fractions like "3/5" in the tab labels.
+  const openTotalUnfiltered = useMemo(
+    () => allItems.filter(i => !archived.has(i.id) && !isItemClosed(i)).length,
+    [allItems, archived],
+  );
+  const reviewTotalUnfiltered = useMemo(() => {
+    let items = reviewItems;
+    if (repoFilter !== "all") {
+      const repoSuffix = `/${repoFilter}`;
+      items = items.filter(item => item.pr.repo.endsWith(repoSuffix) || item.pr.repo === repoFilter);
+    }
+    return items.length;
+  }, [reviewItems, repoFilter]);
+  const completedTotalUnfiltered = completed.items.length;
+  const isSearching = searchTerms.length > 0;
+
   const displayGroups = useMemo(() => {
     const items = view === "date" ? visibleItems : open;
     const sorted = sortByDate(items);
@@ -2390,8 +2406,8 @@ function Home() {
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
           options={[
-            { value: "tasks" as const, label: `My tasks${open.length > 0 ? ` (${open.length})` : ""}`, hotkey: "m" },
-            { value: "review" as const, label: `Requested reviews${filteredReviewItems.length > 0 ? ` (${filteredReviewItems.length})` : ""}`, hotkey: "r" },
+            { value: "tasks" as const, label: `My tasks${formatTabCount(open.length, openTotalUnfiltered, isSearching)}`, hotkey: "m" },
+            { value: "review" as const, label: `Requested reviews${formatTabCount(filteredReviewItems.length, reviewTotalUnfiltered, isSearching)}`, hotkey: "r" },
           ]}
           value={isReview ? "review" as const : "tasks" as const}
           onChange={(v) => setTab(v as Tab)}
@@ -2438,7 +2454,7 @@ function Home() {
               { value: "priority", label: "Priority", hotkey: "p" },
               { value: "stack", label: "Stack", hotkey: "k" },
               { value: "date", label: "All", hotkey: "a" },
-              { value: "completed", label: `Completed${completedTotal > 0 ? ` (${completedTotal})` : ""}`, hotkey: "c" },
+              { value: "completed", label: `Completed${formatTabCount(completedTotal, completedTotalUnfiltered, isSearching)}`, hotkey: "c" },
             ]}
             value={isCompleted ? "completed" : sort}
             onChange={(v) => {
@@ -2499,7 +2515,10 @@ function Home() {
       {isReview ? (
         <>
           <ReviewQueue items={filteredReviewItems} favorites={favorites} onToggleFavorite={toggleFavorite} archived={archived} onToggleArchive={toggleArchive} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} highlightedId={highlightedId} />
-          {filteredReviewItems.length === 0 && !anyLoading && (
+          {filteredReviewItems.length === 0 && !anyLoading && search.trim() && (
+            <NoSearchMatches search={search} onClear={() => setSearch("")} />
+          )}
+          {filteredReviewItems.length === 0 && !anyLoading && !search.trim() && (
             <div className="text-center py-16 space-y-2">
               <p className="text-sm text-text-tertiary">No PRs awaiting your review</p>
               {serviceErrors.length > 0 && (
@@ -2518,7 +2537,10 @@ function Home() {
           {completed.error && (
             <div className="text-center py-16 text-sm text-status-red">{completed.error}</div>
           )}
-          {!completed.error && completedTotal === 0 && !completed.loading && completed.loaded && (
+          {!completed.error && completedTotal === 0 && !completed.loading && completed.loaded && search.trim() && (
+            <NoSearchMatches search={search} onClear={() => setSearch("")} />
+          )}
+          {!completed.error && completedTotal === 0 && !completed.loading && completed.loaded && !search.trim() && (
             <div className="text-center py-16 text-sm text-text-tertiary">
               No completed issues in the last 30 days
             </div>
@@ -2543,7 +2565,10 @@ function Home() {
             onToggleArchive={toggleArchive}
             highlightedId={highlightedId}
           />
-          {displayItems.length === 0 && !anyLoading && (
+          {displayItems.length === 0 && !anyLoading && search.trim() && (
+            <NoSearchMatches search={search} onClear={() => setSearch("")} />
+          )}
+          {displayItems.length === 0 && !anyLoading && !search.trim() && (
             <div className="text-center py-16 space-y-3">
               <GearIcon className="w-10 h-10 mx-auto text-text-muted" strokeWidth={1.5} />
               <p className="text-sm text-text-secondary font-medium">No active items</p>
@@ -2559,18 +2584,27 @@ function Home() {
         </>
       )}
 
-      {search.trim() && (
-        <div className="text-center py-4 text-xs text-text-tertiary">
-          Filtering by <span className="text-text-secondary">&ldquo;{search}&rdquo;</span>
-          {" · "}
-          <button
-            onClick={() => setSearch("")}
-            className="text-text-secondary hover:text-text-primary hover:underline transition-colors"
-          >
-            Clear search
-          </button>
-        </div>
-      )}
+    </div>
+  );
+}
+
+function formatTabCount(matched: number, total: number, isSearching: boolean): string {
+  if (isSearching) return ` (${matched}/${total})`;
+  return total > 0 ? ` (${total})` : "";
+}
+
+function NoSearchMatches({ search, onClear }: { search: string; onClear: () => void }) {
+  return (
+    <div className="text-center py-16 space-y-3">
+      <p className="text-sm text-text-secondary">
+        No matches for <span className="text-text-primary">&ldquo;{search}&rdquo;</span>
+      </p>
+      <button
+        onClick={onClear}
+        className="text-xs text-text-tertiary hover:text-text-secondary hover:underline transition-colors"
+      >
+        Clear search
+      </button>
     </div>
   );
 }
