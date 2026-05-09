@@ -2,9 +2,9 @@ import { Octokit } from "@octokit/rest";
 import { getEnv } from "@/lib/env";
 import { fetchRawAuthoredPRs, fetchRawReviewRequestedPRs, fetchRawPrsByUrls, fetchBugBotThreads, transformPRs, transformReviewPRs, type RawGitHubPR } from "@/lib/github";
 import { fetchRawAssignedIssues, fetchRawSubscribedIssues, fetchRawIssuesByIdentifiers, transformIssues, type RawLinearIssue } from "@/lib/linear";
-import { fetchRawAgents, transformAgents, type RawCursorAgent } from "@/lib/cursor";
+import { fetchRawAgents, fetchRawAgentsByIds, transformAgents, type RawCursorAgent } from "@/lib/cursor";
 import { getCached, setCache, logApiCall, dedupe } from "@/lib/cache";
-import { buildWorkItems, buildReviewItems, findMissingLinearIds, findMissingPrUrls } from "@/lib/work-items";
+import { buildWorkItems, buildReviewItems, findMissingCursorAgentIds, findMissingLinearIds, findMissingPrUrls } from "@/lib/work-items";
 import {
   upsertWorkItems,
   upsertReviewItems,
@@ -26,7 +26,7 @@ export interface SyncResult {
 
 export type SyncCallback = (progress: { step: number; totalSteps: number }) => void;
 
-const TOTAL_STEPS = 10;
+const TOTAL_STEPS = 11;
 const TTL_LINEAR = 5 * 60 * 1000;
 // notify-check uses GitHub /notifications with If-Modified-Since as a cheap signal,
 // so the underlying sync only runs when something actually changed. That lets these
@@ -192,8 +192,44 @@ export async function sync(opts: { force?: boolean; onProgress?: SyncCallback })
   }
   onProgress?.({ step: currentStep, totalSteps: TOTAL_STEPS });
 
-  // Phase 2c: Review issue enrichment (step 9)
+  // Phase 2c: Missing Cursor agents referenced by Linear attachments (step 9)
   currentStep = 9;
+  {
+    const currentIssuesForAgents = transformIssues(rawLinear);
+    const currentPrsForAgents = transformPRs(rawGithub);
+    const currentAgents = transformAgents(rawCursor);
+    const knownAgentIds = new Set(currentAgents.map(a => a.id));
+    const workItemsForAgents = buildWorkItems(currentIssuesForAgents, currentPrsForAgents, currentAgents);
+    const missingAgentIds = findMissingCursorAgentIds(workItemsForAgents, knownAgentIds);
+
+    if (missingAgentIds.length > 0 && getEnv("CURSOR_API_KEY")) {
+      try {
+        const cacheKey = `cursor:raw:agent-lookup:${missingAgentIds.sort().join(",")}`;
+        const cachedLookup = getCached<RawCursorAgent[]>(cacheKey);
+        let extraRaw: RawCursorAgent[];
+        if (cachedLookup) {
+          logApiCall("cursor", "agent-lookup", "cached", 0);
+          extraRaw = cachedLookup;
+        } else {
+          const start = Date.now();
+          extraRaw = await dedupe(cacheKey, () =>
+            fetchRawAgentsByIds(getEnv("CURSOR_API_KEY")!, missingAgentIds)
+          );
+          logApiCall("cursor", "agent-lookup", "ok", Date.now() - start);
+          setCache(cacheKey, extraRaw, TTL_LOOKUP);
+        }
+        if (extraRaw.length > 0) {
+          rawCursor = [...rawCursor, ...extraRaw];
+        }
+      } catch (e: any) {
+        errors.push(`cursor-agent-lookup: ${e.message}`);
+      }
+    }
+  }
+  onProgress?.({ step: currentStep, totalSteps: TOTAL_STEPS });
+
+  // Phase 2d: Review issue enrichment (step 10)
+  currentStep = 10;
   if (reviewPrsTransformed.length > 0 && getEnv("LINEAR_API_KEY")) {
     const idRe = /[A-Z]+-\d+/gi;
     const reviewIds = new Set<string>();

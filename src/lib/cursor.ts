@@ -29,6 +29,37 @@ export async function fetchRawAgents(apiKey: string): Promise<RawCursorAgent[]> 
   return data.agents ?? [];
 }
 
+export async function fetchRawAgentById(
+  apiKey: string,
+  id: string
+): Promise<RawCursorAgent | null> {
+  const res = await fetch(`${CURSOR_API_BASE}/v0/agents/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Cursor API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchRawAgentsByIds(
+  apiKey: string,
+  ids: string[]
+): Promise<RawCursorAgent[]> {
+  if (ids.length === 0) return [];
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        return await fetchRawAgentById(apiKey, id);
+      } catch {
+        return null;
+      }
+    })
+  );
+  return results.filter((r): r is RawCursorAgent => r !== null);
+}
+
 export function transformAgent(agent: RawCursorAgent): CursorAgent {
   return {
     id: agent.id,

@@ -1,6 +1,21 @@
 import type { LinearIssue, GitHubPR, CursorAgent, WorkItem, ReviewItem } from "@/types";
 
 const IDENTIFIER_RE = /[A-Z]+-\d+/gi;
+const CURSOR_AGENT_ID_FROM_URL_RE = /cursor\.com\/agents\/([^/?#\s]+)/i;
+
+function extractCursorAgentId(url: string): string | null {
+  const m = url.match(CURSOR_AGENT_ID_FROM_URL_RE);
+  return m ? m[1] : null;
+}
+
+function cursorAgentIdsFromIssue(issue: LinearIssue | undefined): Set<string> {
+  const ids = new Set<string>();
+  for (const url of issue?.cursorAgentUrls ?? []) {
+    const id = extractCursorAgentId(url);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
 
 export function buildWorkItems(
   issues: LinearIssue[],
@@ -51,7 +66,9 @@ export function buildWorkItems(
         if (agent.prUrl === pr.url) {
           const agentText = `${agent.branch} ${agent.name}`.toLowerCase();
           for (const [key, item] of items) {
-            if (item.linear && agentText.includes(key)) {
+            if (!item.linear) continue;
+            const linkedViaAttachment = cursorAgentIdsFromIssue(item.linear).has(agent.id);
+            if (linkedViaAttachment || agentText.includes(key)) {
               item.prs.push(pr);
               matched = true;
               break;
@@ -75,6 +92,16 @@ export function buildWorkItems(
     if (agent.prUrl) {
       for (const [, item] of items) {
         if (item.prs.some(pr => pr.url === agent.prUrl)) {
+          item.agents.push(agent);
+          matched = true;
+          break;
+        }
+      }
+    }
+    // Match by Linear attachment/comment referencing this Cursor agent
+    if (!matched) {
+      for (const [, item] of items) {
+        if (cursorAgentIdsFromIssue(item.linear).has(agent.id)) {
           item.agents.push(agent);
           matched = true;
           break;
@@ -167,6 +194,22 @@ export function buildReviewItems(
         : "team";
     return { id: "", pr, linear, requestType };
   });
+}
+
+/**
+ * Find Cursor agent IDs referenced by Linear attachments/comments but missing from the known agents list.
+ */
+export function findMissingCursorAgentIds(
+  items: WorkItem[],
+  knownAgentIds: Set<string>
+): string[] {
+  const missing = new Set<string>();
+  for (const item of items) {
+    for (const id of cursorAgentIdsFromIssue(item.linear)) {
+      if (!knownAgentIds.has(id)) missing.add(id);
+    }
+  }
+  return [...missing];
 }
 
 /**
