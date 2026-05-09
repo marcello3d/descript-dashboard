@@ -13,15 +13,32 @@ export interface RawLinearIssue {
   updatedAt: string;
   assigneeName?: string;
   attachmentUrls: string[];
+  // URLs of interest (GitHub PRs, Cursor agents) extracted from comment bodies.
+  // Linear's "Cursor connected" UI tile is rendered from a comment, not an attachment.
+  commentUrls: string[];
 }
+
+const COMMENT_URL_RE = /https?:\/\/(?:[a-z0-9.-]*\.)?(?:github\.com\/[^\s)]+\/pull\/\d+|cursor\.com\/agents\/[^\s)]+)/gi;
 
 async function resolveIssue(issue: any): Promise<RawLinearIssue> {
   const state = await issue.state;
   const assigneeObj = await issue.assignee;
-  const attachments = await issue.attachments();
+  const [attachments, comments] = await Promise.all([
+    issue.attachments(),
+    issue.comments({ first: 50 }),
+  ]);
   const attachmentUrls: string[] = [];
   for (const att of attachments.nodes) {
     if (att.url) attachmentUrls.push(att.url);
+  }
+  const commentUrls = new Set<string>();
+  for (const c of comments.nodes) {
+    const body: string | undefined = c.body;
+    if (!body) continue;
+    for (const m of body.matchAll(COMMENT_URL_RE)) {
+      // Strip trailing punctuation that often follows URLs in markdown
+      commentUrls.add(m[0].replace(/[)>,.;]+$/, ""));
+    }
   }
   return {
     id: issue.id,
@@ -34,14 +51,21 @@ async function resolveIssue(issue: any): Promise<RawLinearIssue> {
     updatedAt: issue.updatedAt.toISOString(),
     assigneeName: assigneeObj?.displayName ?? undefined,
     attachmentUrls,
+    commentUrls: [...commentUrls],
   };
 }
 
 export function transformIssue(raw: RawLinearIssue): LinearIssue {
-  const prUrls: string[] = [];
-  for (const url of raw.attachmentUrls) {
-    if (url.includes("github.com") && url.includes("/pull/")) {
-      prUrls.push(url);
+  const prUrls = new Set<string>();
+  const cursorAgentUrls = new Set<string>();
+  const sources = [raw.attachmentUrls, raw.commentUrls ?? []];
+  for (const list of sources) {
+    for (const url of list) {
+      if (url.includes("github.com") && url.includes("/pull/")) {
+        prUrls.add(url);
+      } else if (url.includes("cursor.com/agents/")) {
+        cursorAgentUrls.add(url);
+      }
     }
   }
   return {
@@ -54,7 +78,8 @@ export function transformIssue(raw: RawLinearIssue): LinearIssue {
     url: raw.url,
     updatedAt: raw.updatedAt,
     assignee: raw.assigneeName,
-    prUrls,
+    prUrls: [...prUrls],
+    cursorAgentUrls: [...cursorAgentUrls],
   };
 }
 

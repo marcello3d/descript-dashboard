@@ -9,6 +9,7 @@ export interface LinearIssue {
   updatedAt: string;
   assignee?: string; // display name of the assignee
   prUrls: string[]; // GitHub PR URLs linked via attachments/relations
+  cursorAgentUrls: string[]; // Cursor agent URLs linked via attachments
 }
 
 export interface GitHubMergeReadiness {
