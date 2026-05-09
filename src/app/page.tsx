@@ -2440,21 +2440,38 @@ function Home() {
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
         )}
         <div className="flex-1" />
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setSearch("");
-              e.currentTarget.blur();
-            }
-          }}
-          placeholder="Filter (F)"
-          aria-label="Filter items"
-          className="text-xs px-2 py-1 border border-border rounded bg-background text-text-primary placeholder:text-text-tertiary w-36 focus:w-56 focus:outline-none focus:border-text-tertiary transition-all"
-        />
+        <div className="relative w-36 focus-within:w-56 transition-all">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setSearch("");
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="Filter (F)"
+            aria-label="Filter items"
+            className={`text-xs px-2 py-1 border border-border rounded bg-background text-text-primary placeholder:text-text-tertiary w-full focus:outline-none focus:border-text-tertiary transition-colors ${search ? "pr-6" : ""}`}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                searchInputRef.current?.focus();
+              }}
+              aria-label="Clear filter"
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded text-text-tertiary hover:text-text-primary hover:bg-surface-hover transition-colors"
+            >
+              <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          )}
+        </div>
         {!isReview && !isCompleted && <ServiceFilter value={serviceFilter} onToggle={toggleServiceFilter} />}
         {!isReview && (
           <ToggleGroup

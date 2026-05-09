@@ -75,3 +75,7 @@ MCP endpoint: `http://localhost:4080/api/mcp` (Streamable HTTP transport, statel
 - `LINEAR_API_KEY` — Linear personal API key
 - `GITHUB_TOKEN` — GitHub personal access token
 - `CURSOR_API_KEY` — Cursor API key
+
+## PR workflow
+
+Open a PR with `gh pr create` and stop. Wait for explicit instruction before merging — do not auto-merge after creating. When asked to merge, use `gh pr merge --squash --delete-branch`.
