@@ -1,7 +1,7 @@
-import { LinearClient, PaginationOrderBy, type Issue } from "@linear/sdk";
+import { LinearClient } from "@linear/sdk";
 import type { LinearIssue } from "@/types";
 
-// Raw resolved data from Linear SDK (plain object, JSON-serializable)
+// Raw resolved data — JSON-serializable, suitable for caching as-is.
 export interface RawLinearIssue {
   id: string;
   title: string;
@@ -18,38 +18,69 @@ export interface RawLinearIssue {
   commentUrls: string[];
 }
 
-const COMMENT_URL_RE = /https?:\/\/(?:[a-z0-9.-]*\.)?(?:github\.com\/[^\s)]+\/pull\/\d+|cursor\.com\/agents\/[^\s)]+)/gi;
+const COMMENT_URL_RE = /https?:\/\/(?:[a-z0-9.-]*\.)?(?:github\.com\/[^\s)\]<>"]+\/pull\/\d+|cursor\.com\/agents\/[^\s)\]<>"]+)/gi;
 
-async function resolveIssue(issue: Issue): Promise<RawLinearIssue> {
-  const state = await issue.state;
-  const assigneeObj = await issue.assignee;
-  const [attachments, comments] = await Promise.all([
-    issue.attachments(),
-    issue.comments({ first: 50 }),
-  ]);
+// Single-shot GraphQL: pulls everything resolveIssue() used to lazy-load
+// (state, assignee, attachments, comments) in one request per fetch instead
+// of 5 requests per issue. Cuts a 50-issue sync from ~250 round-trips to 1.
+const ISSUE_FIELDS_FRAGMENT = `
+  fragment IssueFields on Issue {
+    id
+    title
+    identifier
+    priority
+    url
+    updatedAt
+    state { name type }
+    assignee { displayName }
+    attachments { nodes { url } }
+    comments(first: 50) { nodes { body } }
+  }
+`;
+
+interface IssueFieldsGraphQL {
+  id: string;
+  title: string;
+  identifier: string;
+  priority: number;
+  url: string;
+  updatedAt: string;
+  state: { name: string; type: string } | null;
+  assignee: { displayName: string } | null;
+  attachments: { nodes: { url: string | null }[] };
+  comments: { nodes: { body: string | null }[] };
+}
+
+interface LinearGraphQLClient {
+  rawRequest<T>(query: string, variables?: Record<string, unknown>): Promise<{ data?: T }>;
+}
+
+function getRawClient(client: LinearClient): LinearGraphQLClient {
+  return (client as unknown as { client: LinearGraphQLClient }).client;
+}
+
+function mapIssue(raw: IssueFieldsGraphQL): RawLinearIssue {
   const attachmentUrls: string[] = [];
-  for (const att of attachments.nodes) {
+  for (const att of raw.attachments.nodes) {
     if (att.url) attachmentUrls.push(att.url);
   }
   const commentUrls = new Set<string>();
-  for (const c of comments.nodes) {
-    const body: string | undefined = c.body;
-    if (!body) continue;
-    for (const m of body.matchAll(COMMENT_URL_RE)) {
-      // Strip trailing punctuation that often follows URLs in markdown
+  for (const c of raw.comments.nodes) {
+    if (!c.body) continue;
+    for (const m of c.body.matchAll(COMMENT_URL_RE)) {
       commentUrls.add(m[0].replace(/[)>,.;]+$/, ""));
     }
   }
   return {
-    id: issue.id,
-    title: issue.title,
-    identifier: issue.identifier,
-    statusName: state?.name ?? "Unknown",
-    statusType: state?.type ?? "unstarted",
-    priority: issue.priority,
-    url: issue.url,
-    updatedAt: issue.updatedAt.toISOString(),
-    assigneeName: assigneeObj?.displayName ?? undefined,
+    id: raw.id,
+    title: raw.title,
+    identifier: raw.identifier,
+    statusName: raw.state?.name ?? "Unknown",
+    statusType: raw.state?.type ?? "unstarted",
+    priority: raw.priority,
+    url: raw.url,
+    updatedAt: raw.updatedAt,
+    assigneeName: raw.assignee?.displayName ?? undefined,
     attachmentUrls,
     commentUrls: [...commentUrls],
   };
@@ -87,23 +118,40 @@ export function transformIssues(raw: RawLinearIssue[]): LinearIssue[] {
   return raw.map(transformIssue);
 }
 
+// One round-trip per N identifiers via aliased subqueries.
 export async function fetchRawIssuesByIdentifiers(
   apiKey: string,
   identifiers: string[]
 ): Promise<RawLinearIssue[]> {
   if (identifiers.length === 0) return [];
   const client = new LinearClient({ apiKey });
-  const promises = identifiers.map(async (id) => {
-    try {
-      const issue = await client.issue(id);
-      if (issue) return resolveIssue(issue);
-    } catch {
-      // Issue not found or other error
+
+  const aliasArgs = identifiers
+    .map((_, i) => `$id${i}: String!`)
+    .join(", ");
+  const aliasFields = identifiers
+    .map((_, i) => `i${i}: issue(id: $id${i}) { ...IssueFields }`)
+    .join("\n    ");
+  const query = `
+    ${ISSUE_FIELDS_FRAGMENT}
+    query IssuesByIdentifiers(${aliasArgs}) {
+      ${aliasFields}
     }
-    return null;
-  });
-  const resolved = await Promise.all(promises);
-  return resolved.filter((r): r is RawLinearIssue => r !== null);
+  `;
+  const variables: Record<string, unknown> = {};
+  identifiers.forEach((id, i) => { variables[`id${i}`] = id; });
+
+  try {
+    const res = await getRawClient(client).rawRequest<Record<string, IssueFieldsGraphQL | null>>(query, variables);
+    const data = res.data ?? {};
+    return identifiers
+      .map((_, i) => data[`i${i}`])
+      .filter((n): n is IssueFieldsGraphQL => Boolean(n))
+      .map(mapIssue);
+  } catch {
+    // Some identifiers may not exist; on a hard failure, fall back to no results.
+    return [];
+  }
 }
 
 export interface LinearRateLimit {
@@ -118,23 +166,118 @@ export interface RawLinearResult {
   rateLimit?: LinearRateLimit;
 }
 
+interface RateLimitGraphQL {
+  limits: { requestedAmount: number; remainingAmount: number; allowedAmount: number; reset: number }[];
+}
+
+function pickRateLimit(rl: RateLimitGraphQL | null | undefined): LinearRateLimit | undefined {
+  if (!rl?.limits?.length) return undefined;
+  const lim = rl.limits[0];
+  return {
+    cost: Math.round(lim.requestedAmount),
+    remaining: Math.round(lim.remainingAmount),
+    limit: Math.round(lim.allowedAmount),
+    resetAt: new Date(lim.reset).toISOString(),
+  };
+}
+
+const RATE_LIMIT_FRAGMENT = `
+  rateLimitStatus {
+    limits { requestedAmount remainingAmount allowedAmount reset }
+  }
+`;
+
+export async function fetchRawAssignedIssues(
+  apiKey: string
+): Promise<RawLinearResult> {
+  const client = new LinearClient({ apiKey });
+  const query = `
+    ${ISSUE_FIELDS_FRAGMENT}
+    query AssignedIssues {
+      viewer {
+        assignedIssues(first: 50, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+          nodes { ...IssueFields }
+        }
+      }
+      ${RATE_LIMIT_FRAGMENT}
+    }
+  `;
+  const res = await getRawClient(client).rawRequest<{
+    viewer: { assignedIssues: { nodes: IssueFieldsGraphQL[] } };
+    rateLimitStatus: RateLimitGraphQL | null;
+  }>(query);
+  const nodes = res.data?.viewer.assignedIssues.nodes ?? [];
+  return {
+    issues: nodes.map(mapIssue),
+    rateLimit: pickRateLimit(res.data?.rateLimitStatus),
+  };
+}
+
 export async function fetchRawSubscribedIssues(
   apiKey: string
 ): Promise<RawLinearIssue[]> {
   const client = new LinearClient({ apiKey });
-  const issues = await client.issues({
-    first: 50,
-    filter: {
-      and: [
-        { subscribers: { some: { isMe: { eq: true } } } },
-        { assignee: { isMe: { eq: false } } },
-        { state: { type: { nin: ["completed", "canceled"] } } },
-      ],
-    },
-    orderBy: PaginationOrderBy.UpdatedAt,
-  });
+  const query = `
+    ${ISSUE_FIELDS_FRAGMENT}
+    query SubscribedIssues {
+      issues(
+        first: 50,
+        filter: {
+          and: [
+            { subscribers: { some: { isMe: { eq: true } } } },
+            { assignee: { isMe: { eq: false } } },
+            { state: { type: { nin: ["completed", "canceled"] } } }
+          ]
+        },
+        orderBy: updatedAt
+      ) {
+        nodes { ...IssueFields }
+      }
+    }
+  `;
+  const res = await getRawClient(client).rawRequest<{
+    issues: { nodes: IssueFieldsGraphQL[] };
+  }>(query);
+  return (res.data?.issues.nodes ?? []).map(mapIssue);
+}
 
-  return Promise.all(issues.nodes.map(resolveIssue));
+export async function fetchRawCompletedIssues(
+  apiKey: string
+): Promise<RawLinearResult> {
+  const client = new LinearClient({ apiKey });
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const query = `
+    ${ISSUE_FIELDS_FRAGMENT}
+    query CompletedIssues($cutoff: DateTimeOrDuration!) {
+      viewer {
+        assignedIssues(
+          first: 100,
+          filter: {
+            and: [
+              { or: [
+                { state: { type: { eq: "completed" } } },
+                { state: { name: { eq: "Verify" } } }
+              ] },
+              { updatedAt: { gte: $cutoff } }
+            ]
+          },
+          orderBy: updatedAt
+        ) {
+          nodes { ...IssueFields }
+        }
+      }
+      ${RATE_LIMIT_FRAGMENT}
+    }
+  `;
+  const res = await getRawClient(client).rawRequest<{
+    viewer: { assignedIssues: { nodes: IssueFieldsGraphQL[] } };
+    rateLimitStatus: RateLimitGraphQL | null;
+  }>(query, { cutoff });
+  const nodes = res.data?.viewer.assignedIssues.nodes ?? [];
+  return {
+    issues: nodes.map(mapIssue),
+    rateLimit: pickRateLimit(res.data?.rateLimitStatus),
+  };
 }
 
 export interface WorkflowStateInfo {
@@ -177,82 +320,4 @@ export async function updateIssueStatus(
   if (!updated) throw new Error("Issue not found after update");
   const state = await updated.state;
   return { success: true, statusName: state?.name ?? "Unknown" };
-}
-
-export async function fetchRawAssignedIssues(
-  apiKey: string
-): Promise<RawLinearResult> {
-  const client = new LinearClient({ apiKey });
-  const viewer = await client.viewer;
-  const issues = await viewer.assignedIssues({
-    first: 50,
-    filter: {
-      state: {
-        type: { nin: ["completed", "canceled"] },
-      },
-    },
-  });
-
-  const result = await Promise.all(issues.nodes.map(resolveIssue));
-
-  let rateLimit: LinearRateLimit | undefined;
-  try {
-    const rl = await client.rateLimitStatus;
-    if (rl.limits.length > 0) {
-      const lim = rl.limits[0];
-      rateLimit = {
-        cost: Math.round(lim.requestedAmount),
-        remaining: Math.round(lim.remainingAmount),
-        limit: Math.round(lim.allowedAmount),
-        resetAt: new Date(lim.reset).toISOString(),
-      };
-    }
-  } catch {
-    // ignore
-  }
-
-  return { issues: result, rateLimit };
-}
-
-export async function fetchRawCompletedIssues(
-  apiKey: string
-): Promise<RawLinearResult> {
-  const client = new LinearClient({ apiKey });
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const viewer = await client.viewer;
-  const issues = await viewer.assignedIssues({
-    first: 100,
-    filter: {
-      and: [
-        {
-          or: [
-            { state: { type: { eq: "completed" } } },
-            { state: { name: { eq: "Verify" } } },
-          ],
-        },
-        { updatedAt: { gte: cutoff } },
-      ],
-    },
-    orderBy: PaginationOrderBy.UpdatedAt,
-  });
-
-  const result = await Promise.all(issues.nodes.map(resolveIssue));
-
-  let rateLimit: LinearRateLimit | undefined;
-  try {
-    const rl = await client.rateLimitStatus;
-    if (rl.limits.length > 0) {
-      const lim = rl.limits[0];
-      rateLimit = {
-        cost: Math.round(lim.requestedAmount),
-        remaining: Math.round(lim.remainingAmount),
-        limit: Math.round(lim.allowedAmount),
-        resetAt: new Date(lim.reset).toISOString(),
-      };
-    }
-  } catch {
-    // ignore
-  }
-
-  return { issues: result, rateLimit };
 }
