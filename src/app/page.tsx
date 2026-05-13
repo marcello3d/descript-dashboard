@@ -1677,7 +1677,7 @@ function workItemHaystack(item: WorkItem): string {
     item.linear?.identifier ?? "",
     item.linear?.status ?? "",
     item.linear?.assignee ?? "",
-    ...item.prs.flatMap(pr => [pr.title, pr.author, pr.authorLogin, pr.repo, pr.branch]),
+    ...item.prs.flatMap(pr => [pr.title, pr.author, pr.authorLogin, pr.repo, pr.branch, `#${getPrNumber(pr.url)}`]),
     ...item.agents.flatMap(a => [a.name, a.repo, a.branch, a.status]),
     ...item.tags,
   ];
@@ -1691,6 +1691,7 @@ function reviewItemHaystack(r: ReviewItem): string {
     r.pr.authorLogin,
     r.pr.repo,
     r.pr.branch,
+    `#${getPrNumber(r.pr.url)}`,
     r.linear?.title ?? "",
     r.linear?.identifier ?? "",
     ...r.pr.requestedTeams.map(t => t.name),
@@ -1709,7 +1710,7 @@ function completedItemHaystack(item: WorkItem): string {
     item.linear?.title ?? "",
     item.linear?.identifier ?? "",
     item.linear?.status ?? "",
-    ...item.prs.flatMap((pr) => [pr.title, pr.repo, pr.branch]),
+    ...item.prs.flatMap((pr) => [pr.title, pr.repo, pr.branch, `#${getPrNumber(pr.url)}`]),
     ...item.agents.flatMap((a) => [a.name, a.repo, a.branch]),
   ];
   return parts.join("   ").toLowerCase();
