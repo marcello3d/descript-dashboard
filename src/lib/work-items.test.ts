@@ -59,6 +59,8 @@ function makePr(over: Partial<GitHubPR> = {}): GitHubPR {
     requestedTeams: [],
     bugBotThreadCount: 0,
     bugBotThreadUrls: [],
+    slackThreadUrl: null,
+    claudeSessionUrl: null,
     mergeReadiness: {
       ready: false,
       state: "unknown",

@@ -45,6 +45,8 @@ export interface GitHubPR {
   requestedTeams: { slug: string; name: string }[]; // teams requested for review
   bugBotThreadCount: number; // unresolved review threads authored by cursor[bot]
   bugBotThreadUrls: string[]; // direct comment URLs for those threads
+  slackThreadUrl: string | null; // Slack thread that requested the PR (parsed from body)
+  claudeSessionUrl: string | null; // Claude Code session that produced the PR (parsed from body)
   mergeReadiness: GitHubMergeReadiness;
 }
 

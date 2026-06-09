@@ -1,5 +1,6 @@
 export { default as BellIcon } from "./BellIcon";
 export { default as CheckIcon } from "./CheckIcon";
+export { default as ClaudeIcon } from "./ClaudeIcon";
 export { default as ClosedPrIcon } from "./ClosedPrIcon";
 export { default as CopyIcon } from "./CopyIcon";
 export { default as CursorIcon } from "./CursorIcon";

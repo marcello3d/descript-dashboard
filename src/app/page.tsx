@@ -3,7 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
-import { FaBug } from "react-icons/fa";
+import { FaBug, FaSlack } from "react-icons/fa";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated } from "@/lib/work-items";
 import { errorMessage } from "@/lib/errors";
@@ -14,6 +14,7 @@ import { useToast } from "@/components/Toast";
 import {
   BellIcon,
   CheckIcon,
+  ClaudeIcon,
   ClosedPrIcon,
   CopyIcon,
   CursorIcon,
@@ -161,6 +162,36 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
             </button>
           )}
         </a>
+        {pr.authorLogin === "claude[bot]" && (
+          pr.claudeSessionUrl ? (
+            <a
+              href={pr.claudeSessionUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+              title="Opened by Claude — open Claude Code session"
+              aria-label="Open Claude Code session"
+            >
+              <ClaudeIcon className="w-3.5 h-3.5" />
+            </a>
+          ) : (
+            <span className="inline-flex items-center p-1" title="Opened by Claude">
+              <ClaudeIcon className="w-3.5 h-3.5" />
+            </span>
+          )
+        )}
+        {pr.slackThreadUrl && (
+          <a
+            href={pr.slackThreadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+            title="Open Slack thread"
+            aria-label="Open Slack thread"
+          >
+            <FaSlack className="w-3.5 h-3.5" />
+          </a>
+        )}
         {pr.bugBotThreadCount > 0 && (
           <a
             href={pr.bugBotThreadUrls?.[0] ?? pr.url}

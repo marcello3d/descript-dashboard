@@ -74,6 +74,20 @@ export interface RawGitHubResult {
   searchRateLimit?: GitHubRateLimit;
 }
 
+// claude[bot] PR bodies include a Slack thread link and a Claude Code session link
+// (e.g. "[Slack thread](https://*.slack.com/...)" and "https://claude.ai/code/session_...").
+// Bodies are HTML-escaped, so decode &amp; back to & so the hrefs work.
+function extractClaudeLinks(body: string | null | undefined): {
+  slackThreadUrl: string | null;
+  claudeSessionUrl: string | null;
+} {
+  if (!body) return { slackThreadUrl: null, claudeSessionUrl: null };
+  const slack = body.match(/https:\/\/[a-z0-9-]+\.slack\.com\/[^\s)\]>]+/i);
+  const session = body.match(/https:\/\/claude\.ai\/code\/[^\s)\]>]+/i);
+  const clean = (u: string | undefined) => (u ? u.replace(/&amp;/g, "&") : null);
+  return { slackThreadUrl: clean(slack?.[0]), claudeSessionUrl: clean(session?.[0]) };
+}
+
 // Transform raw PR to the app's GitHubPR type
 export function transformPR(raw: RawGitHubPR): GitHubPR {
   let reviewDecision: string | null = raw.reviewDecision ?? null;
@@ -114,6 +128,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
     requestedTeams: raw.requestedTeams ?? [],
     bugBotThreadCount: raw.bugBotThreadUrls?.length ?? raw.bugBotThreadCount ?? 0,
     bugBotThreadUrls: raw.bugBotThreadUrls ?? [],
+    ...extractClaudeLinks(raw.body),
     mergeReadiness: raw.mergeReadiness ?? {
       ready: false,
       state: "unknown",
@@ -142,7 +157,8 @@ export async function fetchRawAuthoredPRs(
   const octokit = new Octokit({ auth: accessToken });
 
   // Phase 1: REST search for open + merged + closed PRs (uses search rate limit, not core/graphql)
-  const [openRes, mergedRes, closedRes] = await Promise.all([
+  // Also pull open PRs the claude[bot] app opened on our behalf (we're involved but not the author).
+  const [openRes, mergedRes, closedRes, claudeRes] = await Promise.all([
     octokit.rest.search.issuesAndPullRequests({
       q: "is:open is:pr author:@me",
       sort: "updated",
@@ -158,17 +174,22 @@ export async function fetchRawAuthoredPRs(
       sort: "updated",
       per_page: 20,
     }),
+    octokit.rest.search.issuesAndPullRequests({
+      q: "is:open is:pr author:app/claude involves:@me archived:false",
+      sort: "updated",
+      per_page: 30,
+    }),
   ]);
 
   // Read search rate limit from the last search response headers
-  const searchHeaders = closedRes.headers;
+  const searchHeaders = claudeRes.headers;
   const searchRemaining = Number(searchHeaders["x-ratelimit-remaining"]);
   const searchLimit = Number(searchHeaders["x-ratelimit-limit"]);
   const searchReset = Number(searchHeaders["x-ratelimit-reset"]);
 
   // Deduplicate
   const seen = new Set<number>();
-  const searchItems = [...openRes.data.items, ...mergedRes.data.items, ...closedRes.data.items].filter(item => {
+  const searchItems = [...openRes.data.items, ...mergedRes.data.items, ...closedRes.data.items, ...claudeRes.data.items].filter(item => {
     if (seen.has(item.id)) return false;
     seen.add(item.id);
     return true;

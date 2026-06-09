@@ -16,7 +16,7 @@ const LINEAR_GRAPHQL = "https://api.linear.app/graphql";
 
 interface GraphQLBody {
   query: string;
-  variables?: Record<string, string>;
+  variables?: Record<string, unknown>;
 }
 
 function makeIssueNode(identifier: string) {
@@ -122,10 +122,16 @@ describe("Linear fetch* — single GraphQL request per call", () => {
         count += 1;
         const body = (await request.json()) as GraphQLBody;
         expect(body.query).toContain("IssuesByIdentifiers");
-        // Aliased subqueries i0..iN — return one node per alias.
-        const data: Record<string, ReturnType<typeof makeIssueNode>> = {};
-        ids.forEach((id, i) => { data[`i${i}`] = makeIssueNode(id); });
-        return HttpResponse.json({ data });
+        // Must use a server-side filter (one request), NOT aliased issue(id:)
+        // lookups — a single missing identifier in an alias batch nulls the
+        // entire response and drops every valid result.
+        expect(body.query).not.toContain("issue(id:");
+        const filter = body.variables?.filter as { or?: unknown[] };
+        expect(filter?.or).toHaveLength(ids.length);
+        // Filtered `issues` query — return one node per requested identifier.
+        return HttpResponse.json({
+          data: { issues: { nodes: ids.map((id) => makeIssueNode(id)) } },
+        });
       }),
     );
 
