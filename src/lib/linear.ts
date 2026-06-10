@@ -126,30 +126,39 @@ export async function fetchRawIssuesByIdentifiers(
   if (identifiers.length === 0) return [];
   const client = new LinearClient({ apiKey });
 
-  const aliasArgs = identifiers
-    .map((_, i) => `$id${i}: String!`)
-    .join(", ");
-  const aliasFields = identifiers
-    .map((_, i) => `i${i}: issue(id: $id${i}) { ...IssueFields }`)
-    .join("\n    ");
+  // Parse "TEAM-123" into { key, number }; skip anything malformed.
+  const parsed = identifiers
+    .map((id) => {
+      const m = id.match(/^([A-Za-z]+)-(\d+)$/);
+      return m ? { key: m[1].toUpperCase(), number: Number(m[2]) } : null;
+    })
+    .filter((p): p is { key: string; number: number } => p !== null);
+  if (parsed.length === 0) return [];
+
+  // Use a filtered `issues` query rather than aliased `issue(id:)` lookups: Linear
+  // nulls the ENTIRE response if any single `issue(id:)` alias references a missing or
+  // inaccessible issue, which would wipe out every valid result in the batch (e.g. one
+  // stale identifier in a claude[bot] PR branch would drop all the others). A filter
+  // silently skips non-matching identifiers and still costs a single request.
   const query = `
     ${ISSUE_FIELDS_FRAGMENT}
-    query IssuesByIdentifiers(${aliasArgs}) {
-      ${aliasFields}
+    query IssuesByIdentifiers($filter: IssueFilter!) {
+      issues(first: 250, filter: $filter) {
+        nodes { ...IssueFields }
+      }
     }
   `;
-  const variables: Record<string, unknown> = {};
-  identifiers.forEach((id, i) => { variables[`id${i}`] = id; });
+  const filter = {
+    or: parsed.map(({ key, number }) => ({
+      and: [{ team: { key: { eq: key } } }, { number: { eq: number } }],
+    })),
+  };
 
   try {
-    const res = await getRawClient(client).rawRequest<Record<string, IssueFieldsGraphQL | null>>(query, variables);
-    const data = res.data ?? {};
-    return identifiers
-      .map((_, i) => data[`i${i}`])
-      .filter((n): n is IssueFieldsGraphQL => Boolean(n))
-      .map(mapIssue);
+    const res = await getRawClient(client).rawRequest<{ issues: { nodes: IssueFieldsGraphQL[] } }>(query, { filter });
+    return (res.data?.issues.nodes ?? []).map(mapIssue);
   } catch {
-    // Some identifiers may not exist; on a hard failure, fall back to no results.
+    // On a hard failure, fall back to no results.
     return [];
   }
 }

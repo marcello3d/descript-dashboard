@@ -1,5 +1,6 @@
 export { default as BellIcon } from "./BellIcon";
 export { default as CheckIcon } from "./CheckIcon";
+export { default as ClaudeIcon } from "./ClaudeIcon";
 export { default as ClosedPrIcon } from "./ClosedPrIcon";
 export { default as CopyIcon } from "./CopyIcon";
 export { default as CursorIcon } from "./CursorIcon";
@@ -12,5 +13,6 @@ export { default as RefreshIcon } from "./RefreshIcon";
 export { default as ReviewApprovedIcon } from "./ReviewApprovedIcon";
 export { default as ReviewChangesRequestedIcon } from "./ReviewChangesRequestedIcon";
 export { default as ReviewRequiredIcon } from "./ReviewRequiredIcon";
+export { default as SlackIcon } from "./SlackIcon";
 export { default as StackIcon } from "./StackIcon";
 export { default as WarningIcon } from "./WarningIcon";

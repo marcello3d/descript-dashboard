@@ -14,6 +14,7 @@ import { useToast } from "@/components/Toast";
 import {
   BellIcon,
   CheckIcon,
+  ClaudeIcon,
   ClosedPrIcon,
   CopyIcon,
   CursorIcon,
@@ -26,6 +27,7 @@ import {
   ReviewApprovedIcon,
   ReviewChangesRequestedIcon,
   ReviewRequiredIcon,
+  SlackIcon,
   StackIcon,
   WarningIcon,
 } from "@/components/icons";
@@ -135,8 +137,8 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="inline-flex items-center gap-1">
+    <div className="flex flex-col gap-0.5 items-start">
+      <span className="relative inline-flex items-center gap-1">
         <a
           href={pr.url}
           target="_blank"
@@ -173,7 +175,10 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
             <span className="text-[11px]">{pr.bugBotThreadCount}</span>
           </a>
         )}
-        <CopyBranchButton branch={pr.branch} />
+        {/* out of flow so the hover-only button doesn't widen the column */}
+        <span className="absolute left-full top-1/2 -translate-y-1/2 z-10">
+          <CopyBranchButton branch={pr.branch} />
+        </span>
       </span>
       {pr.mergeReadiness?.ready && (
         <span className="text-xs text-status-green font-medium ml-4">
@@ -274,13 +279,11 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
       ? "text-status-red"
       : "text-text-tertiary";
 
-  const showStatus = s !== "finished";
+  // Return null (not an empty span) — an empty flex child still picks up the
+  // parent's gap, leaving phantom space after the icon.
+  if (s === "finished") return null;
 
-  return (
-    <span className="text-xs inline-flex items-center gap-1">
-      {showStatus && <span className={color}>{s}</span>}
-    </span>
-  );
+  return <span className={`text-xs ${color}`}>{s}</span>;
 }
 
 function ServiceHeader({
@@ -529,12 +532,81 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
   return (
     <button
       onClick={handleCreate}
-      className={`${cellLinkFlex} group`}
+      className="text-text-muted/40 hover:text-text-secondary p-1 rounded hover:bg-fill-muted transition-colors"
       title="Create Cursor agent for this PR"
+      aria-label="Create Cursor agent for this PR"
     >
-      <CursorIcon className="w-3.5 h-3.5 text-text-muted group-hover:text-text-secondary transition-colors" />
-      <span className="text-xs text-text-muted group-hover:text-text-tertiary transition-colors">+</span>
+      <CursorIcon className="w-3.5 h-3.5" />
     </button>
+  );
+}
+
+// "Links" column: consolidates the Claude Code session, the requesting Slack
+// thread, and the Cursor agent for a work item into icon-only links. When there
+// is no agent yet but a PR exists and onAgentCreated is provided, the Cursor
+// icon doubles as a "create agent" button. Each icon gets a fixed-width slot so
+// the columns stay vertically aligned across rows even when a link is absent.
+const linkSlotClass = "w-[22px] flex items-center justify-center flex-shrink-0";
+// transition-colors (not -all / opacity) — animating opacity promotes a
+// compositor layer mid-hover, which visibly snaps the icon by a subpixel.
+const linkIconClass = "p-1 rounded hover:bg-fill-muted transition-colors";
+
+function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
+  const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
+  const slackUrl = item.prs.find(pr => pr.slackThreadUrl)?.slackThreadUrl ?? null;
+  const agent = item.agents[0];
+  const canCreateAgent = !agent && Boolean(onAgentCreated) && item.prs.length > 0;
+
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <span className={linkSlotClass}>
+        {claudeUrl && (
+          <a
+            href={claudeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkIconClass}
+            title="Opened by Claude — open Claude Code session"
+            aria-label="Open Claude Code session"
+          >
+            <ClaudeIcon className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </span>
+      <span className={linkSlotClass}>
+        {slackUrl && (
+          <a
+            href={slackUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkIconClass}
+            title="Open Slack thread"
+            aria-label="Open Slack thread"
+          >
+            <SlackIcon className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </span>
+      <span className={`${linkSlotClass} w-auto min-w-[22px]`}>
+        {agent ? (
+          <a
+            href={agent.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${linkIconClass} inline-flex items-center gap-1 text-text-secondary hover:text-text-primary`}
+            title="Open Cursor agent"
+            aria-label="Open Cursor agent"
+          >
+            <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            <AgentInfo agent={agent} />
+          </a>
+        ) : canCreateAgent ? (
+          <CreateAgentButton item={item} onCreated={onAgentCreated!} />
+        ) : (
+          <CursorIcon className="w-3.5 h-3.5 text-text-muted/40" />
+        )}
+      </span>
+    </span>
   );
 }
 
@@ -591,7 +663,7 @@ function WorkItemTable({
             <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<SiGithub className="w-3.5 h-3.5 text-text-secondary" />} label="GitHub" error={errors.find(e => e.startsWith("github:"))?.slice(8) ?? null} /></span>
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
-            <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<CursorIcon className="w-3.5 h-3.5 text-text-secondary" />} label="Cursor" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
+            <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={null} label="Links" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
           </th>
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
@@ -718,22 +790,7 @@ function WorkItemTable({
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.agents.length > 0 ? (
-                  <a
-                    href={item.agents[0].url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cellLinkFlex}
-                  >
-                    <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
-                    <span className="text-xs text-text-tertiary">Agent</span>
-                    <AgentInfo agent={item.agents[0]} />
-                  </a>
-                ) : item.prs.length > 0 ? (
-                  <CreateAgentButton item={item} onCreated={onAgentCreated} />
-                ) : (
-                  <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
-                )}
+                <WorkItemLinksCell item={item} onAgentCreated={onAgentCreated} />
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 <ChangesSummary
@@ -1894,8 +1951,7 @@ function CompletedTable({
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
             <span className="flex items-center gap-1.5 px-2">
-              <CursorIcon className="w-3.5 h-3.5 text-text-secondary" />
-              <span className="text-xs font-medium text-text-secondary">Cursor</span>
+              <span className="text-xs font-medium text-text-secondary">Links</span>
             </span>
           </th>
         </tr>
@@ -1910,7 +1966,7 @@ function CompletedTable({
             onToggle={() => onToggleCollapsed(label)}
           />
           {!collapsed.has(label) && items.map((item) => {
-            const issue = item.linear!;
+            const issue = item.linear;
             const dateStr = completedItemDate(item);
             const { text, color } = timeAgo(dateStr);
             return (
@@ -1925,7 +1981,7 @@ function CompletedTable({
                 </td>
                 <td className="py-1.5 px-2">
                   <a
-                    href={item.prs[0]?.url ?? issue.url}
+                    href={item.prs[0]?.url ?? issue?.url ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-text-primary hover:underline transition-colors line-clamp-1"
@@ -1934,16 +1990,20 @@ function CompletedTable({
                   </a>
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
-                  <a
-                    href={issue.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cellLinkFlex}
-                    title={`${issue.status} — open ${issue.identifier} in Linear`}
-                  >
-                    <StatusIcon status={issue.status} />
-                    <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
-                  </a>
+                  {issue ? (
+                    <a
+                      href={issue.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cellLinkFlex}
+                      title={`${issue.status} — open ${issue.identifier} in Linear`}
+                    >
+                      <StatusIcon status={issue.status} />
+                      <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
+                    </a>
+                  ) : (
+                    <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
+                  )}
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
                   {item.prs.length > 0 ? (
@@ -1952,7 +2012,7 @@ function CompletedTable({
                         <PrCellLink key={pr.id} pr={pr} />
                       ))}
                     </div>
-                  ) : issue.prUrls[0] ? (
+                  ) : issue?.prUrls[0] ? (
                     <a
                       href={issue.prUrls[0]}
                       target="_blank"
@@ -1967,19 +2027,7 @@ function CompletedTable({
                   )}
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
-                  {item.agents.length > 0 ? (
-                    <a
-                      href={item.agents[0].url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cellLinkFlex}
-                    >
-                      <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
-                      <span className="text-xs text-text-tertiary">Agent</span>
-                    </a>
-                  ) : (
-                    <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
-                  )}
+                  <WorkItemLinksCell item={item} />
                 </td>
               </tr>
             );
