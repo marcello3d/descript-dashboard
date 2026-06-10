@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SiLinear, SiGithub } from "react-icons/si";
 import { useToast } from "@/components/Toast";
@@ -78,144 +78,36 @@ async function saveKeys(body: Record<string, string>): Promise<void> {
   }
 }
 
-function GitHubDeviceFlow({ data, onConnected }: { data: SettingsData | null; onConnected: () => Promise<void> }) {
-  const [clientId, setClientId] = useState("");
-  const [flow, setFlow] = useState<{ userCode: string; verificationUri: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
-  const cancelled = useRef(false);
-  useEffect(() => {
-    cancelled.current = false;
-    return () => { cancelled.current = true; };
-  }, []);
+const OAUTH_PROVIDERS = {
+  github: {
+    label: "GitHub",
+    idKey: "GITHUB_CLIENT_ID",
+    secretKey: "GITHUB_CLIENT_SECRET",
+    createUrl: "https://github.com/settings/applications/new",
+  },
+  linear: {
+    label: "Linear",
+    idKey: "LINEAR_CLIENT_ID",
+    secretKey: "LINEAR_CLIENT_SECRET",
+    createUrl: "https://linear.app/settings/api/applications/new",
+  },
+} as const;
 
-  const clientIdConfigured = data?.keys.GITHUB_CLIENT_ID?.set || data?.envOverrides.GITHUB_CLIENT_ID;
-
-  const poll = useCallback(async (deviceCode: string, intervalMs: number) => {
-    while (!cancelled.current) {
-      await new Promise((r) => setTimeout(r, intervalMs));
-      try {
-        const res = await fetch("/api/auth/github/device/poll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceCode }),
-        });
-        const json = await res.json();
-        if (json.status === "complete") {
-          setFlow(null);
-          setBusy(false);
-          toast("success", "GitHub connected");
-          await onConnected();
-          return;
-        }
-        if (json.status === "pending") {
-          if (json.interval) intervalMs = json.interval * 1000;
-          continue;
-        }
-        throw new Error(json.error ?? "Device flow failed");
-      } catch (e) {
-        setError(errorMessage(e));
-        setFlow(null);
-        setBusy(false);
-        return;
-      }
-    }
-  }, [toast, onConnected]);
-
-  const start = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      if (clientId.trim()) {
-        await saveKeys({ GITHUB_CLIENT_ID: clientId.trim() });
-        setClientId("");
-        await onConnected();
-      }
-      const res = await fetch("/api/auth/github/device", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to start device flow");
-      setFlow({ userCode: json.userCode, verificationUri: json.verificationUri });
-      poll(json.deviceCode, (json.interval ?? 5) * 1000);
-    } catch (e) {
-      setError(errorMessage(e));
-      setBusy(false);
-    }
-  }, [clientId, onConnected, poll]);
-
-  return (
-    <details className="mt-1">
-      <summary className="text-xs text-text-tertiary hover:text-text-secondary transition-colors">
-        Or sign in with GitHub (device flow)
-      </summary>
-      <div className="mt-2 space-y-2 pl-3 border-l border-border">
-        <p className="text-xs text-text-tertiary">
-          Needs a GitHub OAuth App with <strong>Device Flow</strong> enabled —{" "}
-          <a
-            href="https://github.com/settings/applications/new"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:underline text-text-secondary"
-          >
-            create one
-          </a>{" "}
-          (the callback URL is unused; any value works). No client secret required.
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            placeholder={clientIdConfigured ? data?.keys.GITHUB_CLIENT_ID?.masked || "configured" : "OAuth App Client ID (Iv1... or 20-char hex)"}
-            className={oauthInputClass}
-            autoComplete="off"
-          />
-          <button
-            onClick={start}
-            disabled={busy || (!clientIdConfigured && !clientId.trim())}
-            className={oauthButtonClass}
-          >
-            {busy ? "Waiting…" : "Sign in"}
-          </button>
-        </div>
-        {flow && (
-          <div className="text-sm text-text-primary">
-            Enter code{" "}
-            <code className="font-mono font-bold tracking-widest bg-surface border border-border rounded px-1.5 py-0.5">
-              {flow.userCode}
-            </code>{" "}
-            at{" "}
-            <a
-              href={flow.verificationUri}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline text-text-secondary hover:text-text-primary"
-            >
-              {flow.verificationUri.replace("https://", "")}
-            </a>
-            <span className="text-xs text-text-tertiary"> — waiting for authorization…</span>
-          </div>
-        )}
-        {error && <p className="text-xs text-status-red">{error}</p>}
-      </div>
-    </details>
-  );
-}
-
-function LinearOAuthConnect({ data }: { data: SettingsData | null }) {
+function OAuthConnect({ provider, data }: { provider: keyof typeof OAUTH_PROVIDERS; data: SettingsData | null }) {
+  const { label, idKey, secretKey, createUrl } = OAUTH_PROVIDERS[provider];
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [callbackUrl, setCallbackUrl] = useState("http://localhost:4080/api/auth/linear/callback");
+  const [callbackUrl, setCallbackUrl] = useState(`http://localhost:4080/api/auth/${provider}/callback`);
   useEffect(() => {
     // window.location is unavailable during SSR; fill in the real origin on mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCallbackUrl(`${window.location.origin}/api/auth/linear/callback`);
-  }, []);
+    setCallbackUrl(`${window.location.origin}/api/auth/${provider}/callback`);
+  }, [provider]);
 
-  const idConfigured = data?.keys.LINEAR_CLIENT_ID?.set || data?.envOverrides.LINEAR_CLIENT_ID;
-  const secretConfigured = data?.keys.LINEAR_CLIENT_SECRET?.set || data?.envOverrides.LINEAR_CLIENT_SECRET;
+  const idConfigured = data?.keys[idKey]?.set || data?.envOverrides[idKey];
+  const secretConfigured = data?.keys[secretKey]?.set || data?.envOverrides[secretKey];
   const canConnect = (idConfigured || clientId.trim()) && (secretConfigured || clientSecret.trim());
 
   const connect = useCallback(async () => {
@@ -223,26 +115,26 @@ function LinearOAuthConnect({ data }: { data: SettingsData | null }) {
     setError(null);
     try {
       const body: Record<string, string> = {};
-      if (clientId.trim()) body.LINEAR_CLIENT_ID = clientId.trim();
-      if (clientSecret.trim()) body.LINEAR_CLIENT_SECRET = clientSecret.trim();
+      if (clientId.trim()) body[idKey] = clientId.trim();
+      if (clientSecret.trim()) body[secretKey] = clientSecret.trim();
       if (Object.keys(body).length > 0) await saveKeys(body);
-      window.location.href = "/api/auth/linear/start";
+      window.location.href = `/api/auth/${provider}/start`;
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
     }
-  }, [clientId, clientSecret]);
+  }, [provider, idKey, secretKey, clientId, clientSecret]);
 
   return (
     <details className="mt-1">
       <summary className="text-xs text-text-tertiary hover:text-text-secondary transition-colors">
-        Or connect with Linear OAuth
+        Or sign in with {label} OAuth
       </summary>
       <div className="mt-2 space-y-2 pl-3 border-l border-border">
         <p className="text-xs text-text-tertiary">
-          Needs a Linear OAuth application —{" "}
+          Needs a {label} OAuth app —{" "}
           <a
-            href="https://linear.app/settings/api/applications/new"
+            href={createUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:underline text-text-secondary"
@@ -256,7 +148,7 @@ function LinearOAuthConnect({ data }: { data: SettingsData | null }) {
             type="text"
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            placeholder={idConfigured ? data?.keys.LINEAR_CLIENT_ID?.masked || "configured" : "Client ID"}
+            placeholder={idConfigured ? data?.keys[idKey]?.masked || "configured" : "Client ID"}
             className={oauthInputClass}
             autoComplete="off"
           />
@@ -271,7 +163,7 @@ function LinearOAuthConnect({ data }: { data: SettingsData | null }) {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={connect} disabled={busy || !canConnect} className={oauthButtonClass}>
-            {busy ? "Redirecting…" : "Connect Linear"}
+            {busy ? "Redirecting…" : `Connect ${label}`}
           </button>
         </div>
         {error && <p className="text-xs text-status-red">{error}</p>}
@@ -392,12 +284,12 @@ export default function SettingsPage() {
     fetchSettings();
   }, [fetchSettings]);
 
-  // Surface the result of a Linear OAuth redirect (?linear=connected / ?linear_error=...)
+  // Surface the result of an OAuth redirect (?connected=<provider> / ?oauth_error=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get("linear");
-    const oauthError = params.get("linear_error");
-    if (connected === "connected") toast("success", "Linear connected");
+    const connected = params.get("connected");
+    const oauthError = params.get("oauth_error");
+    if (connected) toast("success", `${connected === "github" ? "GitHub" : "Linear"} connected`);
     if (oauthError) toast("error", oauthError);
     if (connected || oauthError) window.history.replaceState(null, "", "/settings");
   }, [toast]);
@@ -571,8 +463,8 @@ export default function SettingsPage() {
                 {linkLabel} &rarr;
               </a>
 
-              {key === "GITHUB_TOKEN" && <GitHubDeviceFlow data={data} onConnected={fetchSettings} />}
-              {key === "LINEAR_API_KEY" && <LinearOAuthConnect data={data} />}
+              {key === "GITHUB_TOKEN" && <OAuthConnect provider="github" data={data} />}
+              {key === "LINEAR_API_KEY" && <OAuthConnect provider="linear" data={data} />}
             </div>
           );
         })}
