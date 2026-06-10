@@ -394,6 +394,59 @@ export async function fetchRawPrsByUrls(
   return results;
 }
 
+// Recently merged PRs the claude[bot] app opened on our behalf — feeds the
+// Completed view, which is otherwise Linear-assignment-driven and would miss them.
+export async function fetchRawMergedClaudePrs(
+  accessToken: string,
+  previousPrs?: RawGitHubPR[]
+): Promise<RawGitHubPR[]> {
+  const octokit = new Octokit({ auth: accessToken });
+
+  const res = await octokit.rest.search.issuesAndPullRequests({
+    q: "is:merged is:pr author:app/claude involves:@me archived:false",
+    sort: "updated",
+    per_page: 20,
+  });
+
+  const prevById = new Map<number, RawGitHubPR>();
+  for (const pr of previousPrs ?? []) prevById.set(pr.id, pr);
+
+  const results: RawGitHubPR[] = [];
+  for (const item of res.data.items) {
+    const prev = prevById.get(item.id);
+    if (prev && prev.updatedAt === item.updated_at) {
+      results.push(prev);
+      continue;
+    }
+    const [owner, repo] = item.repository_url.split("/").slice(-2);
+    try {
+      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: item.number });
+      results.push({
+        id: item.id,
+        title: pr.title,
+        userLogin: pr.user?.login ?? "",
+        owner,
+        repo,
+        branch: pr.head.ref,
+        baseBranch: pr.base.ref,
+        draft: pr.draft ?? false,
+        merged: pr.merged,
+        state: pr.state,
+        url: pr.html_url,
+        updatedAt: pr.updated_at,
+        mergedAt: pr.merged_at ?? null,
+        body: pr.body ?? null,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        changedFiles: pr.changed_files,
+        reviews: [],
+      });
+    } catch { /* skip PRs we can't fetch */ }
+  }
+
+  return results;
+}
+
 export async function fetchRawReviewRequestedPRs(
   accessToken: string,
   previousPrs?: RawGitHubPR[]

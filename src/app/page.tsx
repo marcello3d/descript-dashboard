@@ -3,7 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiLinear, SiGithub } from "react-icons/si";
-import { FaBug, FaSlack } from "react-icons/fa";
+import { FaBug } from "react-icons/fa";
 import type { CursorAgent, GitHubPR, LinearIssue, WorkItem, ReviewItem } from "@/types";
 import { getLastUpdated } from "@/lib/work-items";
 import { errorMessage } from "@/lib/errors";
@@ -27,6 +27,7 @@ import {
   ReviewApprovedIcon,
   ReviewChangesRequestedIcon,
   ReviewRequiredIcon,
+  SlackIcon,
   StackIcon,
   WarningIcon,
 } from "@/components/icons";
@@ -136,8 +137,8 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr }: { pr: GitHubPR }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="inline-flex items-center gap-1">
+    <div className="flex flex-col gap-0.5 items-start">
+      <span className="relative inline-flex items-center gap-1">
         <a
           href={pr.url}
           target="_blank"
@@ -174,7 +175,10 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
             <span className="text-[11px]">{pr.bugBotThreadCount}</span>
           </a>
         )}
-        <CopyBranchButton branch={pr.branch} />
+        {/* out of flow so the hover-only button doesn't widen the column */}
+        <span className="absolute left-full top-1/2 -translate-y-1/2 z-10">
+          <CopyBranchButton branch={pr.branch} />
+        </span>
       </span>
       {pr.mergeReadiness?.ready && (
         <span className="text-xs text-status-green font-medium ml-4">
@@ -530,7 +534,7 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
   return (
     <button
       onClick={handleCreate}
-      className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+      className="text-text-muted/40 hover:text-text-secondary p-1 rounded hover:bg-fill-muted transition-colors"
       title="Create Cursor agent for this PR"
       aria-label="Create Cursor agent for this PR"
     >
@@ -545,6 +549,9 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
 // icon doubles as a "create agent" button. Each icon gets a fixed-width slot so
 // the columns stay vertically aligned across rows even when a link is absent.
 const linkSlotClass = "w-[22px] flex items-center justify-center flex-shrink-0";
+// transition-colors (not -all / opacity) — animating opacity promotes a
+// compositor layer mid-hover, which visibly snaps the icon by a subpixel.
+const linkIconClass = "p-1 rounded hover:bg-fill-muted transition-colors";
 
 function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
   const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
@@ -553,14 +560,14 @@ function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCr
   const canCreateAgent = !agent && Boolean(onAgentCreated) && item.prs.length > 0;
 
   return (
-    <span className="inline-flex items-center gap-0.5 px-1">
+    <span className="inline-flex items-center gap-0.5">
       <span className={linkSlotClass}>
         {claudeUrl && (
           <a
             href={claudeUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+            className={linkIconClass}
             title="Opened by Claude — open Claude Code session"
             aria-label="Open Claude Code session"
           >
@@ -574,11 +581,11 @@ function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCr
             href={slackUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+            className={linkIconClass}
             title="Open Slack thread"
             aria-label="Open Slack thread"
           >
-            <FaSlack className="w-3.5 h-3.5" />
+            <SlackIcon className="w-3.5 h-3.5" />
           </a>
         )}
       </span>
@@ -588,17 +595,17 @@ function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCr
             href={agent.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${iconButtonClass} rounded hover:bg-fill-muted inline-flex items-center gap-1`}
+            className={`${linkIconClass} inline-flex items-center gap-1 text-text-secondary hover:text-text-primary`}
             title="Open Cursor agent"
             aria-label="Open Cursor agent"
           >
-            <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+            <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
             <AgentInfo agent={agent} />
           </a>
         ) : canCreateAgent ? (
           <CreateAgentButton item={item} onCreated={onAgentCreated!} />
         ) : (
-          <CursorIcon className="w-3.5 h-3.5 text-text-muted opacity-40" />
+          <CursorIcon className="w-3.5 h-3.5 text-text-muted/40" />
         )}
       </span>
     </span>
@@ -1961,7 +1968,7 @@ function CompletedTable({
             onToggle={() => onToggleCollapsed(label)}
           />
           {!collapsed.has(label) && items.map((item) => {
-            const issue = item.linear!;
+            const issue = item.linear;
             const dateStr = completedItemDate(item);
             const { text, color } = timeAgo(dateStr);
             return (
@@ -1976,7 +1983,7 @@ function CompletedTable({
                 </td>
                 <td className="py-1.5 px-2">
                   <a
-                    href={item.prs[0]?.url ?? issue.url}
+                    href={item.prs[0]?.url ?? issue?.url ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-text-primary hover:underline transition-colors line-clamp-1"
@@ -1985,16 +1992,20 @@ function CompletedTable({
                   </a>
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
-                  <a
-                    href={issue.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cellLinkFlex}
-                    title={`${issue.status} — open ${issue.identifier} in Linear`}
-                  >
-                    <StatusIcon status={issue.status} />
-                    <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
-                  </a>
+                  {issue ? (
+                    <a
+                      href={issue.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cellLinkFlex}
+                      title={`${issue.status} — open ${issue.identifier} in Linear`}
+                    >
+                      <StatusIcon status={issue.status} />
+                      <span className="text-xs text-text-tertiary font-mono">{issue.identifier}</span>
+                    </a>
+                  ) : (
+                    <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
+                  )}
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
                   {item.prs.length > 0 ? (
@@ -2003,7 +2014,7 @@ function CompletedTable({
                         <PrCellLink key={pr.id} pr={pr} />
                       ))}
                     </div>
-                  ) : issue.prUrls[0] ? (
+                  ) : issue?.prUrls[0] ? (
                     <a
                       href={issue.prUrls[0]}
                       target="_blank"
