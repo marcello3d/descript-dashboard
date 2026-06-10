@@ -317,6 +317,19 @@ export async function fetchWorkflowStatesForIssue(
     .sort((a, b) => a.position - b.position);
 }
 
+export async function updateIssuePriority(
+  apiKey: string,
+  issueId: string,
+  priority: number
+): Promise<{ success: boolean; priority: number }> {
+  const client = new LinearClient({ apiKey });
+  const payload = await client.updateIssue(issueId, { priority });
+  if (!payload.success) throw new Error("Failed to update issue");
+  const updated = await payload.issue;
+  if (!updated) throw new Error("Issue not found after update");
+  return { success: true, priority: updated.priority };
+}
+
 export async function updateIssueStatus(
   apiKey: string,
   issueId: string,
