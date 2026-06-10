@@ -1680,8 +1680,9 @@ function workItemHaystack(item: WorkItem): string {
     item.linear?.identifier ?? "",
     item.linear?.status ?? "",
     item.linear?.assignee ?? "",
-    ...item.prs.flatMap(pr => [pr.title, pr.author, pr.authorLogin, pr.repo, pr.branch]),
-    ...item.agents.flatMap(a => [a.name, a.repo, a.branch, a.status]),
+    item.linear?.url ?? "",
+    ...item.prs.flatMap(pr => [pr.title, pr.author, pr.authorLogin, pr.repo, pr.branch, `#${getPrNumber(pr.url)}`, pr.url]),
+    ...item.agents.flatMap(a => [a.name, a.repo, a.branch, a.status, a.url]),
     ...item.tags,
   ];
   return parts.join("   ").toLowerCase();
@@ -1694,8 +1695,11 @@ function reviewItemHaystack(r: ReviewItem): string {
     r.pr.authorLogin,
     r.pr.repo,
     r.pr.branch,
+    `#${getPrNumber(r.pr.url)}`,
+    r.pr.url,
     r.linear?.title ?? "",
     r.linear?.identifier ?? "",
+    r.linear?.url ?? "",
     ...r.pr.requestedTeams.map(t => t.name),
   ];
   return parts.join("   ").toLowerCase();
@@ -1712,8 +1716,9 @@ function completedItemHaystack(item: WorkItem): string {
     item.linear?.title ?? "",
     item.linear?.identifier ?? "",
     item.linear?.status ?? "",
-    ...item.prs.flatMap((pr) => [pr.title, pr.repo, pr.branch]),
-    ...item.agents.flatMap((a) => [a.name, a.repo, a.branch]),
+    item.linear?.url ?? "",
+    ...item.prs.flatMap((pr) => [pr.title, pr.repo, pr.branch, `#${getPrNumber(pr.url)}`, pr.url]),
+    ...item.agents.flatMap((a) => [a.name, a.repo, a.branch, a.url]),
   ];
   return parts.join("   ").toLowerCase();
 }
