@@ -162,36 +162,6 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
             </button>
           )}
         </a>
-        {pr.authorLogin === "claude[bot]" && (
-          pr.claudeSessionUrl ? (
-            <a
-              href={pr.claudeSessionUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${iconButtonClass} rounded hover:bg-fill-muted`}
-              title="Opened by Claude — open Claude Code session"
-              aria-label="Open Claude Code session"
-            >
-              <ClaudeIcon className="w-3.5 h-3.5" />
-            </a>
-          ) : (
-            <span className="inline-flex items-center p-1" title="Opened by Claude">
-              <ClaudeIcon className="w-3.5 h-3.5" />
-            </span>
-          )
-        )}
-        {pr.slackThreadUrl && (
-          <a
-            href={pr.slackThreadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
-            title="Open Slack thread"
-            aria-label="Open Slack thread"
-          >
-            <FaSlack className="w-3.5 h-3.5" />
-          </a>
-        )}
         {pr.bugBotThreadCount > 0 && (
           <a
             href={pr.bugBotThreadUrls?.[0] ?? pr.url}
@@ -562,10 +532,68 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
       onClick={handleCreate}
       className={`${cellLinkFlex} group`}
       title="Create Cursor agent for this PR"
+      aria-label="Create Cursor agent for this PR"
     >
       <CursorIcon className="w-3.5 h-3.5 text-text-muted group-hover:text-text-secondary transition-colors" />
-      <span className="text-xs text-text-muted group-hover:text-text-tertiary transition-colors">+</span>
     </button>
+  );
+}
+
+// "Links" column: consolidates the Claude Code session, the requesting Slack
+// thread, and the Cursor agent for a work item into icon-only links. When there
+// is no agent yet but a PR exists and onAgentCreated is provided, the Cursor
+// icon doubles as a "create agent" button.
+function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
+  const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
+  const slackUrl = item.prs.find(pr => pr.slackThreadUrl)?.slackThreadUrl ?? null;
+  const agent = item.agents[0];
+  const canCreateAgent = !agent && Boolean(onAgentCreated) && item.prs.length > 0;
+
+  if (!claudeUrl && !slackUrl && !agent && !canCreateAgent) {
+    return <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {claudeUrl && (
+        <a
+          href={claudeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+          title="Opened by Claude — open Claude Code session"
+          aria-label="Open Claude Code session"
+        >
+          <ClaudeIcon className="w-3.5 h-3.5" />
+        </a>
+      )}
+      {slackUrl && (
+        <a
+          href={slackUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+          title="Open Slack thread"
+          aria-label="Open Slack thread"
+        >
+          <FaSlack className="w-3.5 h-3.5" />
+        </a>
+      )}
+      {agent ? (
+        <a
+          href={agent.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cellLinkFlex}
+          title="Open Cursor agent"
+        >
+          <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+          <AgentInfo agent={agent} />
+        </a>
+      ) : canCreateAgent ? (
+        <CreateAgentButton item={item} onCreated={onAgentCreated!} />
+      ) : null}
+    </span>
   );
 }
 
@@ -622,7 +650,7 @@ function WorkItemTable({
             <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<SiGithub className="w-3.5 h-3.5 text-text-secondary" />} label="GitHub" error={errors.find(e => e.startsWith("github:"))?.slice(8) ?? null} /></span>
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
-            <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={<CursorIcon className="w-3.5 h-3.5 text-text-secondary" />} label="Cursor" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
+            <span className="flex items-center gap-1.5 px-2"><ServiceHeader icon={null} label="Links" error={errors.find(e => e.startsWith("cursor:"))?.slice(8) ?? null} /></span>
           </th>
           <th className="text-left py-2 px-2 w-px whitespace-nowrap">
             <span className="text-xs font-medium text-text-secondary">Changes</span>
@@ -749,22 +777,7 @@ function WorkItemTable({
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
-                {item.agents.length > 0 ? (
-                  <a
-                    href={item.agents[0].url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cellLinkFlex}
-                  >
-                    <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
-                    <span className="text-xs text-text-tertiary">Agent</span>
-                    <AgentInfo agent={item.agents[0]} />
-                  </a>
-                ) : item.prs.length > 0 ? (
-                  <CreateAgentButton item={item} onCreated={onAgentCreated} />
-                ) : (
-                  <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
-                )}
+                <WorkItemLinksCell item={item} onAgentCreated={onAgentCreated} />
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
                 <ChangesSummary
@@ -1925,8 +1938,7 @@ function CompletedTable({
           </th>
           <th className="text-left py-2 px-1 w-px whitespace-nowrap">
             <span className="flex items-center gap-1.5 px-2">
-              <CursorIcon className="w-3.5 h-3.5 text-text-secondary" />
-              <span className="text-xs font-medium text-text-secondary">Cursor</span>
+              <span className="text-xs font-medium text-text-secondary">Links</span>
             </span>
           </th>
         </tr>
@@ -1998,19 +2010,7 @@ function CompletedTable({
                   )}
                 </td>
                 <td className="py-1.5 px-1 whitespace-nowrap">
-                  {item.agents.length > 0 ? (
-                    <a
-                      href={item.agents[0].url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cellLinkFlex}
-                    >
-                      <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
-                      <span className="text-xs text-text-tertiary">Agent</span>
-                    </a>
-                  ) : (
-                    <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
-                  )}
+                  <WorkItemLinksCell item={item} />
                 </td>
               </tr>
             );
