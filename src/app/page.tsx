@@ -530,11 +530,11 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
   return (
     <button
       onClick={handleCreate}
-      className={`${cellLinkFlex} group`}
+      className={`${iconButtonClass} rounded hover:bg-fill-muted`}
       title="Create Cursor agent for this PR"
       aria-label="Create Cursor agent for this PR"
     >
-      <CursorIcon className="w-3.5 h-3.5 text-text-muted group-hover:text-text-secondary transition-colors" />
+      <CursorIcon className="w-3.5 h-3.5" />
     </button>
   );
 }
@@ -542,57 +542,65 @@ function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () 
 // "Links" column: consolidates the Claude Code session, the requesting Slack
 // thread, and the Cursor agent for a work item into icon-only links. When there
 // is no agent yet but a PR exists and onAgentCreated is provided, the Cursor
-// icon doubles as a "create agent" button.
+// icon doubles as a "create agent" button. Each icon gets a fixed-width slot so
+// the columns stay vertically aligned across rows even when a link is absent.
+const linkSlotClass = "w-[22px] flex items-center justify-center flex-shrink-0";
+
 function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
   const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
   const slackUrl = item.prs.find(pr => pr.slackThreadUrl)?.slackThreadUrl ?? null;
   const agent = item.agents[0];
   const canCreateAgent = !agent && Boolean(onAgentCreated) && item.prs.length > 0;
 
-  if (!claudeUrl && !slackUrl && !agent && !canCreateAgent) {
-    return <EmptyServiceCell><CursorIcon className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>;
-  }
-
   return (
-    <span className="inline-flex items-center gap-0.5">
-      {claudeUrl && (
-        <a
-          href={claudeUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`${iconButtonClass} rounded hover:bg-fill-muted`}
-          title="Opened by Claude — open Claude Code session"
-          aria-label="Open Claude Code session"
-        >
-          <ClaudeIcon className="w-3.5 h-3.5" />
-        </a>
-      )}
-      {slackUrl && (
-        <a
-          href={slackUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`${iconButtonClass} rounded hover:bg-fill-muted`}
-          title="Open Slack thread"
-          aria-label="Open Slack thread"
-        >
-          <FaSlack className="w-3.5 h-3.5" />
-        </a>
-      )}
-      {agent ? (
-        <a
-          href={agent.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cellLinkFlex}
-          title="Open Cursor agent"
-        >
-          <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
-          <AgentInfo agent={agent} />
-        </a>
-      ) : canCreateAgent ? (
-        <CreateAgentButton item={item} onCreated={onAgentCreated!} />
-      ) : null}
+    <span className="inline-flex items-center gap-0.5 px-1">
+      <span className={linkSlotClass}>
+        {claudeUrl && (
+          <a
+            href={claudeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+            title="Opened by Claude — open Claude Code session"
+            aria-label="Open Claude Code session"
+          >
+            <ClaudeIcon className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </span>
+      <span className={linkSlotClass}>
+        {slackUrl && (
+          <a
+            href={slackUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${iconButtonClass} rounded hover:bg-fill-muted`}
+            title="Open Slack thread"
+            aria-label="Open Slack thread"
+          >
+            <FaSlack className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </span>
+      <span className={`${linkSlotClass} w-auto min-w-[22px]`}>
+        {agent ? (
+          <a
+            href={agent.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${iconButtonClass} rounded hover:bg-fill-muted inline-flex items-center gap-1`}
+            title="Open Cursor agent"
+            aria-label="Open Cursor agent"
+          >
+            <CursorIcon className="w-3.5 h-3.5 text-text-secondary flex-shrink-0" />
+            <AgentInfo agent={agent} />
+          </a>
+        ) : canCreateAgent ? (
+          <CreateAgentButton item={item} onCreated={onAgentCreated!} />
+        ) : (
+          <CursorIcon className="w-3.5 h-3.5 text-text-muted opacity-40" />
+        )}
+      </span>
     </span>
   );
 }
