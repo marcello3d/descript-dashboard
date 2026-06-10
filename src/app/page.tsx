@@ -279,13 +279,11 @@ function AgentInfo({ agent }: { agent: CursorAgent }) {
       ? "text-status-red"
       : "text-text-tertiary";
 
-  const showStatus = s !== "finished";
+  // Return null (not an empty span) — an empty flex child still picks up the
+  // parent's gap, leaving phantom space after the icon.
+  if (s === "finished") return null;
 
-  return (
-    <span className="text-xs inline-flex items-center gap-1">
-      {showStatus && <span className={color}>{s}</span>}
-    </span>
-  );
+  return <span className={`text-xs ${color}`}>{s}</span>;
 }
 
 function ServiceHeader({
