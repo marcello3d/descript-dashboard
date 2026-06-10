@@ -10,6 +10,7 @@ import { errorMessage } from "@/lib/errors";
 import { registerServiceWorker, notifyNewReviews, notifyPrReviewChanges, getPermissionState, requestPermission } from "@/lib/notifications";
 import { StatusIcon } from "@/components/LinearStatus";
 import LinearStatusDropdown from "@/components/LinearStatusDropdown";
+import LinearPriorityDropdown, { priorityConfig } from "@/components/LinearPriorityDropdown";
 import { useToast } from "@/components/Toast";
 import {
   BellIcon,
@@ -71,18 +72,11 @@ function timeAgo(dateStr: string): { text: string; color: string } {
   return { text, color: "text-text-muted" };
 }
 
-const priorityConfig: Record<number, { label: string; color: string }> = {
-  1: { label: "P0", color: "text-status-red" },
-  2: { label: "P1", color: "text-status-orange" },
-  3: { label: "P2", color: "text-text-tertiary" },
-  4: { label: "P3", color: "text-text-muted" },
-};
-
 function PriorityBadge({ priority }: { priority: number }) {
   const config = priorityConfig[priority];
   if (!config) return null;
   return (
-    <span className={`text-[10px] font-mono font-medium ${config.color}`}>
+    <span className={`text-[10px] font-mono font-medium ${config.color}`} title={config.name}>
       {config.label}
     </span>
   );
@@ -623,6 +617,7 @@ function WorkItemTable({
   onAddTag,
   onRemoveTag,
   onStatusChanged,
+  onPriorityChanged,
   archived,
   onToggleArchive,
   highlightedId,
@@ -639,6 +634,7 @@ function WorkItemTable({
   onAddTag: (itemId: string, tag: string) => void;
   onRemoveTag: (itemId: string, tag: string) => void;
   onStatusChanged: (issueIdentifier: string, newStatus: string) => void;
+  onPriorityChanged: (issueIdentifier: string, newPriority: number) => void;
   archived: Set<string>;
   onToggleArchive: (id: string) => void;
   highlightedId: string | null;
@@ -743,8 +739,11 @@ function WorkItemTable({
                 </BlockerTags>
               </td>
               <td className="py-1.5 px-0 text-center w-[24px]">
-                {item.linear && item.linear.priority > 0 && (
-                  <PriorityBadge priority={item.linear.priority} />
+                {item.linear && (
+                  <LinearPriorityDropdown
+                    issue={item.linear}
+                    onPriorityChanged={(newPriority) => onPriorityChanged(item.linear!.identifier, newPriority)}
+                  />
                 )}
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
@@ -1322,6 +1321,14 @@ function useWorkItems(intervalMs = 300000) {
     ));
   }, []);
 
+  const updateItemPriority = useCallback((issueIdentifier: string, newPriority: number) => {
+    setItems(prev => prev.map(item =>
+      item.linear?.identifier === issueIdentifier
+        ? { ...item, linear: { ...item.linear!, priority: newPriority } }
+        : item
+    ));
+  }, []);
+
   const addTag = useCallback((itemId: string, tag: string) => {
     setItems(prev => prev.map(item =>
       item.id === itemId && !item.tags.includes(tag)
@@ -1349,7 +1356,7 @@ function useWorkItems(intervalMs = 300000) {
     }).catch(() => {});
   }, []);
 
-  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, addTag, removeTag };
+  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, updateItemPriority, addTag, removeTag };
 }
 
 // Drives desktop notifications on a fast cadence, independent of the heavier
@@ -2039,7 +2046,7 @@ function CompletedTable({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewItems, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, updateItemPriority, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   useNotificationPoll();
   const { toast } = useToast();
 
@@ -2059,6 +2066,12 @@ function Home() {
     updateItemStatus(issueIdentifier, newStatus);
     toast("success", `${issueIdentifier} → ${newStatus}`);
   }, [updateItemStatus, toast]);
+
+  // Toast for priority changes
+  const handlePriorityChanged = useCallback((issueIdentifier: string, newPriority: number) => {
+    updateItemPriority(issueIdentifier, newPriority);
+    toast("success", `${issueIdentifier} → ${priorityConfig[newPriority]?.name ?? "Unknown priority"}`);
+  }, [updateItemPriority, toast]);
 
   // Toast for agent creation
   const handleAgentCreated = useCallback(() => {
@@ -2593,6 +2606,7 @@ function Home() {
             onAddTag={addTag}
             onRemoveTag={removeTag}
             onStatusChanged={handleStatusChanged}
+            onPriorityChanged={handlePriorityChanged}
             archived={archived}
             onToggleArchive={toggleArchive}
             highlightedId={highlightedId}
