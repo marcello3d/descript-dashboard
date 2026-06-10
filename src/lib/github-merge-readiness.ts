@@ -318,6 +318,7 @@ function computeMergeReadiness(
   const requiredChecksState = getRequiredChecksState(rules.requiredStatusChecks, contexts);
   const reasons: string[] = [];
 
+  if (pr.baseBranch && pr.baseBranch !== "main") reasons.push(`stacked on ${pr.baseBranch}`);
   if (pr.state !== "open" || pullRequest.closed || pullRequest.merged) reasons.push("not open");
   if (pullRequest.isDraft) reasons.push("draft");
   if (pullRequest.mergeable === "CONFLICTING") reasons.push("merge conflicts");

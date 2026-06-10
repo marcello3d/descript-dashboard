@@ -1628,15 +1628,18 @@ function BlockerTags({
 }
 
 function NotificationBell() {
-  // Read permission once at mount via lazy initializer — getPermissionState
-  // touches the browser API, which is unsafe during SSR.
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
-    () => (typeof window === "undefined" ? "granted" : getPermissionState()),
-  );
+  // Notification.permission is only knowable in the browser, so the server has
+  // to guess — branching on it during render makes the server and first client
+  // render disagree and trips hydration. Start as null (renders nothing, which
+  // is what the server emits) and read the real permission after hydration.
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported" | null>(null);
   const { toast } = useToast();
 
-  // Don't render if already granted or unsupported
-  if (permission === "granted" || permission === "unsupported") return null;
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setPermission(getPermissionState()); }, []);
+
+  // Don't render until permission is known, or if already granted/unsupported.
+  if (permission === null || permission === "granted" || permission === "unsupported") return null;
 
   const handleClick = async () => {
     if (permission === "denied") {
