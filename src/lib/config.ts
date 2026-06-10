@@ -11,12 +11,23 @@ export interface NotificationPrefs {
 export interface AppConfig {
   GITHUB_TOKEN?: string;
   GITHUB_NOTIFICATIONS_TOKEN?: string;
+  GITHUB_CLIENT_ID?: string;
   LINEAR_API_KEY?: string;
+  LINEAR_CLIENT_ID?: string;
+  LINEAR_CLIENT_SECRET?: string;
   CURSOR_API_KEY?: string;
   notifications?: NotificationPrefs;
 }
 
-export const SECRET_KEYS = ["GITHUB_TOKEN", "GITHUB_NOTIFICATIONS_TOKEN", "LINEAR_API_KEY", "CURSOR_API_KEY"] as const;
+export const SECRET_KEYS = [
+  "GITHUB_TOKEN",
+  "GITHUB_NOTIFICATIONS_TOKEN",
+  "GITHUB_CLIENT_ID",
+  "LINEAR_API_KEY",
+  "LINEAR_CLIENT_ID",
+  "LINEAR_CLIENT_SECRET",
+  "CURSOR_API_KEY",
+] as const;
 
 function getConfigPath(): string {
   const configDir = process.env.DESCRIPT_DASHBOARD_CONFIG_PATH || process.cwd();

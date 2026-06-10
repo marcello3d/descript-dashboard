@@ -59,6 +59,14 @@ function getRawClient(client: LinearClient): LinearGraphQLClient {
   return (client as unknown as { client: LinearGraphQLClient }).client;
 }
 
+// Personal API keys (lin_api_*) are sent as a raw Authorization header; OAuth
+// access tokens need the Bearer scheme, which the SDK's accessToken option uses.
+function makeLinearClient(key: string): LinearClient {
+  return key.startsWith("lin_api_")
+    ? new LinearClient({ apiKey: key })
+    : new LinearClient({ accessToken: key });
+}
+
 function mapIssue(raw: IssueFieldsGraphQL): RawLinearIssue {
   const attachmentUrls: string[] = [];
   for (const att of raw.attachments.nodes) {
@@ -124,7 +132,7 @@ export async function fetchRawIssuesByIdentifiers(
   identifiers: string[]
 ): Promise<RawLinearIssue[]> {
   if (identifiers.length === 0) return [];
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
 
   // Parse "TEAM-123" into { key, number }; skip anything malformed.
   const parsed = identifiers
@@ -199,7 +207,7 @@ const RATE_LIMIT_FRAGMENT = `
 export async function fetchRawAssignedIssues(
   apiKey: string
 ): Promise<RawLinearResult> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const query = `
     ${ISSUE_FIELDS_FRAGMENT}
     query AssignedIssues {
@@ -225,7 +233,7 @@ export async function fetchRawAssignedIssues(
 export async function fetchRawSubscribedIssues(
   apiKey: string
 ): Promise<RawLinearIssue[]> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const query = `
     ${ISSUE_FIELDS_FRAGMENT}
     query SubscribedIssues {
@@ -253,7 +261,7 @@ export async function fetchRawSubscribedIssues(
 export async function fetchRawCompletedIssues(
   apiKey: string
 ): Promise<RawLinearResult> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const query = `
     ${ISSUE_FIELDS_FRAGMENT}
@@ -301,7 +309,7 @@ export async function fetchWorkflowStatesForIssue(
   apiKey: string,
   issueId: string
 ): Promise<WorkflowStateInfo[]> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const issue = await client.issue(issueId);
   const team = await issue.team;
   if (!team) throw new Error("Issue has no team");
@@ -322,7 +330,7 @@ export async function updateIssuePriority(
   issueId: string,
   priority: number
 ): Promise<{ success: boolean; priority: number }> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const payload = await client.updateIssue(issueId, { priority });
   if (!payload.success) throw new Error("Failed to update issue");
   const updated = await payload.issue;
@@ -335,7 +343,7 @@ export async function updateIssueStatus(
   issueId: string,
   stateId: string
 ): Promise<{ success: boolean; statusName: string }> {
-  const client = new LinearClient({ apiKey });
+  const client = makeLinearClient(apiKey);
   const payload = await client.updateIssue(issueId, { stateId });
   if (!payload.success) throw new Error("Failed to update issue");
   const updated = await payload.issue;

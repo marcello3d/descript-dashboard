@@ -14,6 +14,7 @@ import { invalidateCache } from "@/lib/cache";
 import { errorMessage } from "@/lib/errors";
 import { fetchWorkflowStatesForIssue, updateIssueStatus } from "@/lib/linear";
 import { createAgent, transformAgent } from "@/lib/cursor";
+import { getEnv } from "@/lib/env";
 
 // ---------------------------------------------------------------------------
 // Per-request MCP server factory (SDK requires one McpServer per transport)
@@ -98,7 +99,7 @@ function createMcpServer(): McpServer {
       stateId: z.string().describe("Target workflow state UUID (get options from get_workflow_states)"),
     },
   }, async (args) => {
-    const apiKey = process.env.LINEAR_API_KEY;
+    const apiKey = getEnv("LINEAR_API_KEY");
     if (!apiKey) {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ error: "LINEAR_API_KEY not configured" }) }],
@@ -126,7 +127,7 @@ function createMcpServer(): McpServer {
       issueId: z.string().describe("Linear issue UUID"),
     },
   }, async (args) => {
-    const apiKey = process.env.LINEAR_API_KEY;
+    const apiKey = getEnv("LINEAR_API_KEY");
     if (!apiKey) {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ error: "LINEAR_API_KEY not configured" }) }],
@@ -154,7 +155,7 @@ function createMcpServer(): McpServer {
       prompt: z.string().describe("Task prompt for the agent"),
     },
   }, async (args) => {
-    const apiKey = process.env.CURSOR_API_KEY;
+    const apiKey = getEnv("CURSOR_API_KEY");
     if (!apiKey) {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ error: "CURSOR_API_KEY not configured" }) }],

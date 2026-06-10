@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SiLinear, SiGithub } from "react-icons/si";
 import { useToast } from "@/components/Toast";
@@ -60,6 +60,225 @@ const KEY_CONFIG = [
     placeholder: "cur_...",
   },
 ];
+
+const oauthInputClass =
+  "flex-1 text-sm bg-surface border border-border rounded-md px-3 py-1.5 text-text-primary placeholder:text-text-muted outline-none focus:border-text-tertiary transition-colors";
+const oauthButtonClass =
+  "px-3 py-1.5 text-sm font-medium rounded-md bg-text-primary text-background hover:opacity-90 disabled:opacity-40 transition-opacity";
+
+async function saveKeys(body: Record<string, string>): Promise<void> {
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => null);
+    throw new Error(json?.error ?? "Failed to save settings");
+  }
+}
+
+function GitHubDeviceFlow({ data, onConnected }: { data: SettingsData | null; onConnected: () => Promise<void> }) {
+  const [clientId, setClientId] = useState("");
+  const [flow, setFlow] = useState<{ userCode: string; verificationUri: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+  const cancelled = useRef(false);
+  useEffect(() => {
+    cancelled.current = false;
+    return () => { cancelled.current = true; };
+  }, []);
+
+  const clientIdConfigured = data?.keys.GITHUB_CLIENT_ID?.set || data?.envOverrides.GITHUB_CLIENT_ID;
+
+  const poll = useCallback(async (deviceCode: string, intervalMs: number) => {
+    while (!cancelled.current) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      try {
+        const res = await fetch("/api/auth/github/device/poll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceCode }),
+        });
+        const json = await res.json();
+        if (json.status === "complete") {
+          setFlow(null);
+          setBusy(false);
+          toast("success", "GitHub connected");
+          await onConnected();
+          return;
+        }
+        if (json.status === "pending") {
+          if (json.interval) intervalMs = json.interval * 1000;
+          continue;
+        }
+        throw new Error(json.error ?? "Device flow failed");
+      } catch (e) {
+        setError(errorMessage(e));
+        setFlow(null);
+        setBusy(false);
+        return;
+      }
+    }
+  }, [toast, onConnected]);
+
+  const start = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (clientId.trim()) {
+        await saveKeys({ GITHUB_CLIENT_ID: clientId.trim() });
+        setClientId("");
+        await onConnected();
+      }
+      const res = await fetch("/api/auth/github/device", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to start device flow");
+      setFlow({ userCode: json.userCode, verificationUri: json.verificationUri });
+      poll(json.deviceCode, (json.interval ?? 5) * 1000);
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }, [clientId, onConnected, poll]);
+
+  return (
+    <details className="mt-1">
+      <summary className="text-xs text-text-tertiary hover:text-text-secondary transition-colors">
+        Or sign in with GitHub (device flow)
+      </summary>
+      <div className="mt-2 space-y-2 pl-3 border-l border-border">
+        <p className="text-xs text-text-tertiary">
+          Needs a GitHub OAuth App with <strong>Device Flow</strong> enabled —{" "}
+          <a
+            href="https://github.com/settings/applications/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline text-text-secondary"
+          >
+            create one
+          </a>{" "}
+          (the callback URL is unused; any value works). No client secret required.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder={clientIdConfigured ? data?.keys.GITHUB_CLIENT_ID?.masked || "configured" : "OAuth App Client ID (Iv1... or 20-char hex)"}
+            className={oauthInputClass}
+            autoComplete="off"
+          />
+          <button
+            onClick={start}
+            disabled={busy || (!clientIdConfigured && !clientId.trim())}
+            className={oauthButtonClass}
+          >
+            {busy ? "Waiting…" : "Sign in"}
+          </button>
+        </div>
+        {flow && (
+          <div className="text-sm text-text-primary">
+            Enter code{" "}
+            <code className="font-mono font-bold tracking-widest bg-surface border border-border rounded px-1.5 py-0.5">
+              {flow.userCode}
+            </code>{" "}
+            at{" "}
+            <a
+              href={flow.verificationUri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-text-secondary hover:text-text-primary"
+            >
+              {flow.verificationUri.replace("https://", "")}
+            </a>
+            <span className="text-xs text-text-tertiary"> — waiting for authorization…</span>
+          </div>
+        )}
+        {error && <p className="text-xs text-status-red">{error}</p>}
+      </div>
+    </details>
+  );
+}
+
+function LinearOAuthConnect({ data }: { data: SettingsData | null }) {
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [callbackUrl, setCallbackUrl] = useState("http://localhost:4080/api/auth/linear/callback");
+  useEffect(() => {
+    // window.location is unavailable during SSR; fill in the real origin on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCallbackUrl(`${window.location.origin}/api/auth/linear/callback`);
+  }, []);
+
+  const idConfigured = data?.keys.LINEAR_CLIENT_ID?.set || data?.envOverrides.LINEAR_CLIENT_ID;
+  const secretConfigured = data?.keys.LINEAR_CLIENT_SECRET?.set || data?.envOverrides.LINEAR_CLIENT_SECRET;
+  const canConnect = (idConfigured || clientId.trim()) && (secretConfigured || clientSecret.trim());
+
+  const connect = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const body: Record<string, string> = {};
+      if (clientId.trim()) body.LINEAR_CLIENT_ID = clientId.trim();
+      if (clientSecret.trim()) body.LINEAR_CLIENT_SECRET = clientSecret.trim();
+      if (Object.keys(body).length > 0) await saveKeys(body);
+      window.location.href = "/api/auth/linear/start";
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }, [clientId, clientSecret]);
+
+  return (
+    <details className="mt-1">
+      <summary className="text-xs text-text-tertiary hover:text-text-secondary transition-colors">
+        Or connect with Linear OAuth
+      </summary>
+      <div className="mt-2 space-y-2 pl-3 border-l border-border">
+        <p className="text-xs text-text-tertiary">
+          Needs a Linear OAuth application —{" "}
+          <a
+            href="https://linear.app/settings/api/applications/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline text-text-secondary"
+          >
+            create one
+          </a>{" "}
+          with callback URL <code className="bg-surface border border-border rounded px-1 py-0.5">{callbackUrl}</code>
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder={idConfigured ? data?.keys.LINEAR_CLIENT_ID?.masked || "configured" : "Client ID"}
+            className={oauthInputClass}
+            autoComplete="off"
+          />
+          <input
+            type="password"
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            placeholder={secretConfigured ? "secret configured" : "Client secret"}
+            className={oauthInputClass}
+            autoComplete="off"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={connect} disabled={busy || !canConnect} className={oauthButtonClass}>
+            {busy ? "Redirecting…" : "Connect Linear"}
+          </button>
+        </div>
+        {error && <p className="text-xs text-status-red">{error}</p>}
+      </div>
+    </details>
+  );
+}
 
 function NotificationSettings({ data, onToggle }: { data: SettingsData | null; onToggle: (key: keyof NotificationPrefs) => void }) {
   // Lazy initializer reads Notification.permission at mount; "default" is the
@@ -172,6 +391,16 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSettings();
   }, [fetchSettings]);
+
+  // Surface the result of a Linear OAuth redirect (?linear=connected / ?linear_error=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("linear");
+    const oauthError = params.get("linear_error");
+    if (connected === "connected") toast("success", "Linear connected");
+    if (oauthError) toast("error", oauthError);
+    if (connected || oauthError) window.history.replaceState(null, "", "/settings");
+  }, [toast]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -341,6 +570,9 @@ export default function SettingsPage() {
               >
                 {linkLabel} &rarr;
               </a>
+
+              {key === "GITHUB_TOKEN" && <GitHubDeviceFlow data={data} onConnected={fetchSettings} />}
+              {key === "LINEAR_API_KEY" && <LinearOAuthConnect data={data} />}
             </div>
           );
         })}
