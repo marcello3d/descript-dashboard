@@ -1,5 +1,6 @@
 import type { Octokit } from "@octokit/rest";
 import { getCached, setCache } from "@/lib/cache";
+import { trunkStatusFromComments } from "@/lib/github-trunk";
 import type { GitHubMergeReadiness } from "@/types";
 import type { RawGitHubPR } from "@/lib/github";
 
@@ -57,6 +58,9 @@ interface PullRequestReadinessData {
   reviewThreads: {
     nodes: { isResolved: boolean }[];
     pageInfo: { hasNextPage: boolean };
+  };
+  comments: {
+    nodes: { author: { login: string } | null; body: string }[];
   };
 }
 
@@ -123,6 +127,14 @@ const PR_READINESS_QUERY = `
             hasNextPage
           }
         }
+        comments(first: 30) {
+          nodes {
+            author {
+              login
+            }
+            body
+          }
+        }
       }
     }
   }
@@ -143,6 +155,9 @@ export async function enrichMergeReadiness(octokit: Octokit, prs: RawGitHubPR[])
     }
     if (pr.checksState === undefined) {
       pr.checksState = pr.mergeReadiness.requiredChecksState;
+    }
+    if (pr.trunk === undefined) {
+      pr.trunk = null;
     }
   }
 }
@@ -172,6 +187,9 @@ async function enrichOnePr(octokit: Octokit, pr: RawGitHubPR): Promise<void> {
   const requiredContexts = await fetchRequiredCheckContexts(octokit, pr.owner, pr.repo, pullRequest.headRefOid, rules.requiredStatusChecks);
   pr.mergeReadiness = computeMergeReadiness(pr, pullRequest, rules, requiredContexts);
   pr.checksState = pr.mergeReadiness.requiredChecksState;
+  pr.trunk = trunkStatusFromComments(
+    (pullRequest.comments?.nodes ?? []).map(node => ({ author: node.author?.login, body: node.body }))
+  );
 }
 
 async function fetchBranchRules(octokit: Octokit, owner: string, repo: string, branch: string): Promise<BranchRules | null> {

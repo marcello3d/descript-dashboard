@@ -128,7 +128,7 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
   );
 }
 
-function PrCellLink({ pr }: { pr: GitHubPR }) {
+function PrCellLink({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
     <div className="flex flex-col gap-0.5 items-start">
@@ -174,12 +174,120 @@ function PrCellLink({ pr }: { pr: GitHubPR }) {
           <CopyBranchButton branch={pr.branch} />
         </span>
       </span>
-      {pr.mergeReadiness?.ready && (
-        <span className="text-xs text-status-green font-medium ml-4">
-          Ready to merge
-        </span>
+      <TrunkMergeCell pr={pr} onMerged={onMerged} />
+    </div>
+  );
+}
+
+// Trunk merge-queue status + a `/trunk merge` button, shown beneath the PR link.
+// Falls back to the plain "Ready to merge" label for repos not managed by Trunk.
+function TrunkMergeCell({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void }) {
+  const trunk = pr.trunk;
+  const ready = pr.mergeReadiness?.ready ?? false;
+
+  if (pr.merged || pr.closed) return null;
+
+  // No Trunk comment → can't post `/trunk merge`; keep the original readiness label.
+  if (!trunk) {
+    return ready ? (
+      <span className="text-xs text-status-green font-medium ml-4">Ready to merge</span>
+    ) : null;
+  }
+
+  // In-queue states show status only — the PR is already submitted.
+  const queued: Partial<Record<typeof trunk.state, string>> = {
+    submitted: "text-status-yellow",
+    waiting_batch: "text-status-yellow",
+    testing: "text-status-blue",
+    merged: "text-status-purple",
+  };
+  const queuedColor = queued[trunk.state];
+  if (queuedColor) {
+    return (
+      <div className="ml-4">
+        <TrunkStatusLabel color={queuedColor} label={trunk.label} url={trunk.detailsUrl} />
+      </div>
+    );
+  }
+
+  // Submittable states (awaiting / failed / canceled) → show the merge button.
+  return (
+    <div className="ml-4 flex items-center gap-2">
+      {trunk.state === "failed" && (
+        <TrunkStatusLabel color="text-status-red" label="Merge failed" url={trunk.detailsUrl} />
+      )}
+      {trunk.state === "canceled" && (
+        <TrunkStatusLabel color="text-text-tertiary" label="Merge canceled" url={trunk.detailsUrl} />
+      )}
+      {trunk.state === "awaiting" && ready && (
+        <span className="text-xs text-status-green font-medium">Ready to merge</span>
+      )}
+      {trunk.canSubmit && (
+        <TrunkMergeButton pr={pr} onMerged={onMerged} label={trunk.state === "awaiting" ? "Merge" : "Retry merge"} />
       )}
     </div>
+  );
+}
+
+function TrunkStatusLabel({ color, label, url }: { color: string; label: string; url: string | null }) {
+  const text = <span className={`text-xs font-medium ${color}`}>{label}</span>;
+  if (!url) return text;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline" title="View in Trunk merge queue">
+      {text}
+    </a>
+  );
+}
+
+// Two-step confirm button that posts `/trunk merge` on the PR.
+function TrunkMergeButton({ pr, onMerged, label }: { pr: GitHubPR; onMerged?: () => void; label: string }) {
+  const [state, setState] = useState<"idle" | "confirm" | "merging" | "done" | "error">("idle");
+  const { toast } = useToast();
+  const num = getPrNumber(pr.url);
+
+  async function submit() {
+    setState("merging");
+    try {
+      const res = await fetch("/api/trunk-merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prUrl: pr.url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to queue merge");
+      setState("done");
+      toast("success", `Queued /trunk merge for #${num}`);
+      onMerged?.();
+    } catch (e) {
+      setState("error");
+      toast("error", `Merge failed: ${errorMessage(e)}`);
+    }
+  }
+
+  if (state === "done") return <span className="text-xs text-status-green font-medium">Queued ✓</span>;
+  if (state === "merging") return <span className="text-xs text-text-tertiary">Submitting…</span>;
+
+  if (state === "confirm") {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <button onClick={submit} className="text-xs font-medium text-status-green hover:underline" title={`Comment "/trunk merge" on #${num}`}>
+          Confirm merge
+        </button>
+        <button onClick={() => setState("idle")} className="text-xs text-text-tertiary hover:text-text-secondary transition-colors">
+          Cancel
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setState("confirm")}
+      className="text-xs font-medium px-1.5 py-0.5 rounded border border-border-muted text-text-secondary hover:bg-fill-muted hover:border-border transition-colors"
+      title={`Comment "/trunk merge" on #${num}`}
+    >
+      {state === "error" ? "Retry" : label}
+    </button>
   );
 }
 
@@ -642,6 +750,7 @@ function WorkItemTable({
   favorites,
   onToggleFavorite,
   onAgentCreated,
+  onMerged,
   collapsed,
   onToggleCollapsed,
   allTags,
@@ -659,6 +768,7 @@ function WorkItemTable({
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
   onAgentCreated: () => void;
+  onMerged: () => void;
   collapsed: Set<string>;
   onToggleCollapsed: (label: string) => void;
   allTags: string[];
@@ -834,7 +944,7 @@ function WorkItemTable({
                       <td className="py-1.5 px-0 text-center w-[24px]" />
                       <td className="py-1.5 px-1 whitespace-nowrap" />
                       <td className="py-1.5 px-1 whitespace-nowrap">
-                        <PrCellLink pr={pr} />
+                        <PrCellLink pr={pr} onMerged={onMerged} />
                       </td>
                       <td className="py-1.5 px-1 whitespace-nowrap">
                         <LinksCell
@@ -961,7 +1071,7 @@ function WorkItemTable({
                 {item.prs.length > 0 ? (
                   <div className="flex flex-col gap-0.5">
                     {item.prs.map(pr => (
-                      <PrCellLink key={pr.id} pr={pr} />
+                      <PrCellLink key={pr.id} pr={pr} onMerged={onMerged} />
                     ))}
                   </div>
                 ) : item.linear?.prUrls?.[0] ? (
@@ -2319,6 +2429,12 @@ function Home() {
     refreshAll();
   }, [toast, refreshAll]);
 
+  // A `/trunk merge` comment was posted; the button toasts, so just re-sync
+  // (with a short delay so GitHub has registered the comment / queue state).
+  const handleMerged = useCallback(() => {
+    setTimeout(refreshAll, 2000);
+  }, [refreshAll]);
+
   // Tick every 15s to keep "updated X ago" fresh
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -2840,6 +2956,7 @@ function Home() {
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
             onAgentCreated={handleAgentCreated}
+            onMerged={handleMerged}
             collapsed={collapsed}
             onToggleCollapsed={toggleCollapsed}
             allTags={allTags}
