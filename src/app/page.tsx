@@ -456,16 +456,15 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, archived
   );
 }
 
-function CreateAgentButton({ item, onCreated }: { item: WorkItem; onCreated: () => void }) {
+function CreateAgentButton({ pr, linear, title, onCreated }: { pr: GitHubPR; linear?: LinearIssue; title: string; onCreated: () => void }) {
   const [state, setState] = useState<"idle" | "prompting" | "creating" | "done" | "error">("idle");
   const [error, setError] = useState("");
   const { toast } = useToast();
 
   async function handleCreate() {
-    const pr = item.prs[0]!;
-    const defaultPrompt = item.linear
-      ? `Address the PR feedback and fix any issues on this PR: ${pr.url}\n\nLinear issue: ${item.linear.url}\n\nTitle: ${item.title}`
-      : `Continue working on this PR: ${pr.url}\n\nTitle: ${item.title}`;
+    const defaultPrompt = linear
+      ? `Address the PR feedback and fix any issues on this PR: ${pr.url}\n\nLinear issue: ${linear.url}\n\nTitle: ${title}`
+      : `Continue working on this PR: ${pr.url}\n\nTitle: ${title}`;
     const prompt = window.prompt("Cursor agent prompt:", defaultPrompt);
     if (!prompt) return;
 
@@ -545,11 +544,27 @@ const linkSlotClass = "w-[22px] flex items-center justify-center flex-shrink-0";
 // compositor layer mid-hover, which visibly snaps the icon by a subpixel.
 const linkIconClass = "p-1 rounded hover:bg-fill-muted transition-colors";
 
-function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
-  const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
-  const slackUrl = item.prs.find(pr => pr.slackThreadUrl)?.slackThreadUrl ?? null;
-  const agent = item.agents[0];
-  const canCreateAgent = !agent && Boolean(onAgentCreated) && item.prs.length > 0;
+// Presentational "Links" cell. Scopes to a single PR's Claude/Slack/agent when
+// rendering a stacked child row, or aggregates across an item's PRs via the
+// WorkItemLinksCell wrapper for the ticket/single-PR row.
+function LinksCell({
+  claudeUrl,
+  slackUrl,
+  agent,
+  createPr,
+  linear,
+  title,
+  onAgentCreated,
+}: {
+  claudeUrl: string | null;
+  slackUrl: string | null;
+  agent: CursorAgent | undefined;
+  createPr: GitHubPR | null;
+  linear?: LinearIssue;
+  title: string;
+  onAgentCreated?: () => void;
+}) {
+  const canCreateAgent = !agent && Boolean(onAgentCreated) && Boolean(createPr);
 
   return (
     <span className="inline-flex items-center gap-0.5">
@@ -595,12 +610,28 @@ function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCr
             <AgentInfo agent={agent} />
           </a>
         ) : canCreateAgent ? (
-          <CreateAgentButton item={item} onCreated={onAgentCreated!} />
+          <CreateAgentButton pr={createPr!} linear={linear} title={title} onCreated={onAgentCreated!} />
         ) : (
           <CursorIcon className="w-3.5 h-3.5 text-text-muted/40" />
         )}
       </span>
     </span>
+  );
+}
+
+function WorkItemLinksCell({ item, onAgentCreated }: { item: WorkItem; onAgentCreated?: () => void }) {
+  const claudeUrl = item.prs.find(pr => pr.claudeSessionUrl)?.claudeSessionUrl ?? null;
+  const slackUrl = item.prs.find(pr => pr.slackThreadUrl)?.slackThreadUrl ?? null;
+  return (
+    <LinksCell
+      claudeUrl={claudeUrl}
+      slackUrl={slackUrl}
+      agent={item.agents[0]}
+      createPr={item.prs[0] ?? null}
+      linear={item.linear}
+      title={item.title}
+      onAgentCreated={onAgentCreated}
+    />
   );
 }
 
@@ -672,6 +703,165 @@ function WorkItemTable({
         {!collapsed.has(label) && items.map((item) => {
           const stackMeta = stackMetaMap?.get(item.id);
           const lastUpdated = getLastUpdated(item);
+
+          // A ticket with more than one PR expands into a parent (ticket) row
+          // plus one indented child row per PR, drawn as the stack the PRs form.
+          if (item.prs.length > 1) {
+            const forest = buildPrForest(item.prs);
+            const isClosed = isItemClosed(item);
+            // Keep child connectors aligned under the ticket's own stack indent
+            // when this item is itself nested in a cross-item stack view.
+            const childIndentPrefix =
+              stackMeta && stackMeta.depth > 0
+                ? stackMeta.parentLines.map((h) => (h ? "│  " : "   ")).join("") + (stackMeta.isLast ? "   " : "│  ")
+                : "";
+            return (
+              <React.Fragment key={item.id}>
+                <tr
+                  className={tableRowClass}
+                  data-item-id={item.id}
+                  data-highlight={highlightedId === item.id ? "true" : undefined}
+                >
+                  <td className="py-1.5 px-0 w-[44px]">
+                    <div className="flex items-center justify-center gap-0.5">
+                      <FavoriteButton id={item.id} isFavorite={favorites.has(item.id)} onToggle={onToggleFavorite} />
+                      <ArchiveButton id={item.id} isArchived={archived.has(item.id)} onToggle={onToggleArchive} />
+                    </div>
+                  </td>
+                  <td className="py-1.5 px-2 text-right">
+                    {lastUpdated && (() => {
+                      const { text, color } = timeAgo(lastUpdated);
+                      const tooltipEntries: { date: string; label: string }[] = [];
+                      if (item.linear?.updatedAt) tooltipEntries.push({ date: item.linear.updatedAt, label: "Linear" });
+                      for (const pr of item.prs) {
+                        if (pr.updatedAt) tooltipEntries.push({ date: pr.updatedAt, label: "GitHub" });
+                      }
+                      for (const a of item.agents) {
+                        if (a.createdAt) tooltipEntries.push({ date: a.createdAt, label: "Cursor" });
+                      }
+                      tooltipEntries.sort((a, b) => b.date.localeCompare(a.date));
+                      const tooltip = tooltipEntries
+                        .map(e => `${e.label}: ${timeAgo(e.date).text} — ${new Date(e.date).toLocaleString()}`)
+                        .join("\n");
+                      return (
+                        <span className={`text-xs ${color} cursor-default hover:underline hover:decoration-dotted`} title={tooltip}>
+                          {text}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td className="py-1.5 px-2">
+                    <BlockerTags
+                      itemId={item.id}
+                      tags={item.tags}
+                      allTags={allTags}
+                      onAdd={onAddTag}
+                      onRemove={onRemoveTag}
+                    >
+                      <>
+                        {stackMeta && stackMeta.depth > 0 && (
+                          <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
+                            {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
+                            {stackMeta.isLast ? "└─" : "├─"}{" "}
+                          </span>
+                        )}
+                        <a
+                          href={item.linear?.url ?? item.prs[0]?.url ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${isClosed ? "line-through opacity-50" : ""}`}
+                        >
+                          {item.title}
+                        </a>
+                      </>
+                    </BlockerTags>
+                  </td>
+                  <td className="py-1.5 px-0 text-center w-[24px]">
+                    {item.linear && (
+                      <LinearPriorityDropdown
+                        issue={item.linear}
+                        onPriorityChanged={(newPriority) => onPriorityChanged(item.linear!.identifier, newPriority)}
+                      />
+                    )}
+                  </td>
+                  <td className="py-1.5 px-1 whitespace-nowrap">
+                    {item.linear ? (
+                      <LinearStatusDropdown
+                        issue={item.linear}
+                        onStatusChanged={(newStatus) => onStatusChanged(item.linear!.identifier, newStatus)}
+                      />
+                    ) : (
+                      <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
+                    )}
+                  </td>
+                  <td className="py-1.5 px-1 whitespace-nowrap">
+                    <span className="text-xs text-text-muted px-2">{item.prs.length} PRs</span>
+                  </td>
+                  <td className="py-1.5 px-1 whitespace-nowrap" />
+                  <td className="py-1.5 px-1 whitespace-nowrap" />
+                </tr>
+                {forest.map((node) => {
+                  const pr = node.pr;
+                  const agent = item.agents.find(a => a.prUrl === pr.url);
+                  const prClosed = pr.merged || pr.closed;
+                  return (
+                    <tr key={`${item.id}:pr:${pr.id}`} className={tableRowClass}>
+                      <td className="py-1.5 px-0 w-[44px]" />
+                      <td className="py-1.5 px-2 text-right">
+                        {(() => {
+                          const { text, color } = timeAgo(pr.updatedAt);
+                          return <span className={`text-xs ${color}`} title={new Date(pr.updatedAt).toLocaleString()}>{text}</span>;
+                        })()}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <span className="flex items-center min-w-0">
+                          <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
+                            {childIndentPrefix}
+                            {node.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
+                            {node.isLast ? "└─" : "├─"}{" "}
+                          </span>
+                          <a
+                            href={pr.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`text-sm text-text-primary hover:underline transition-colors line-clamp-1 ${prClosed ? "line-through opacity-50" : ""}`}
+                            title={pr.title}
+                          >
+                            {pr.title}
+                          </a>
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-0 text-center w-[24px]" />
+                      <td className="py-1.5 px-1 whitespace-nowrap" />
+                      <td className="py-1.5 px-1 whitespace-nowrap">
+                        <PrCellLink pr={pr} />
+                      </td>
+                      <td className="py-1.5 px-1 whitespace-nowrap">
+                        <LinksCell
+                          claudeUrl={pr.claudeSessionUrl}
+                          slackUrl={pr.slackThreadUrl}
+                          agent={agent}
+                          createPr={pr}
+                          linear={item.linear}
+                          title={item.title}
+                          onAgentCreated={onAgentCreated}
+                        />
+                      </td>
+                      <td className="py-1.5 px-1 whitespace-nowrap">
+                        <ChangesSummary
+                          files={pr.changedFiles}
+                          additions={pr.additions}
+                          deletions={pr.deletions}
+                          url={`${pr.url}/files`}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            );
+          }
+
           return (
             <tr
               key={item.id}
@@ -977,6 +1167,56 @@ function flattenTree(
       const nextParentLines = depth > 0 ? [...parentLines, !isLast] : [];
       result.push(...flattenTree(child, childrenMap, depth + 1, nextParentLines, childIsLast));
     }
+  }
+  return result;
+}
+
+interface PrTreeNode {
+  pr: GitHubPR;
+  depth: number;
+  isLast: boolean;
+  parentLines: boolean[];
+}
+
+// Order an item's PRs into the stack forest they form (base→head) so a ticket
+// with multiple stacked PRs renders each PR as an indented child row. A PR is a
+// child of another PR in the same item when its base branch is that PR's head
+// branch; roots are everything else (based on main, or on an external branch).
+// A trailing pass emits any PR not reached, guarding against branch cycles.
+function buildPrForest(prs: GitHubPR[]): PrTreeNode[] {
+  const branchToPr = new Map<string, GitHubPR>();
+  for (const pr of prs) {
+    if (pr.branch) branchToPr.set(pr.branch, pr);
+  }
+  const childrenMap = new Map<string, GitHubPR[]>();
+  const hasParent = new Set<number>();
+  for (const pr of prs) {
+    if (pr.baseBranch && pr.baseBranch !== pr.branch && branchToPr.has(pr.baseBranch)) {
+      const list = childrenMap.get(pr.baseBranch) ?? [];
+      list.push(pr);
+      childrenMap.set(pr.baseBranch, list);
+      hasParent.add(pr.id);
+    }
+  }
+
+  const result: PrTreeNode[] = [];
+  const visited = new Set<number>();
+  const walk = (pr: GitHubPR, depth: number, parentLines: boolean[], isLast: boolean) => {
+    if (visited.has(pr.id)) return;
+    visited.add(pr.id);
+    result.push({ pr, depth, isLast, parentLines: [...parentLines] });
+    const children = pr.branch ? childrenMap.get(pr.branch) ?? [] : [];
+    for (let i = 0; i < children.length; i++) {
+      walk(children[i], depth + 1, [...parentLines, !isLast], i === children.length - 1);
+    }
+  };
+
+  const roots = prs.filter(pr => !hasParent.has(pr.id));
+  for (let i = 0; i < roots.length; i++) {
+    walk(roots[i], 0, [], i === roots.length - 1);
+  }
+  for (const pr of prs) {
+    if (!visited.has(pr.id)) result.push({ pr, depth: 0, isLast: true, parentLines: [] });
   }
   return result;
 }
