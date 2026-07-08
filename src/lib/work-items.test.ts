@@ -70,6 +70,7 @@ function makePr(over: Partial<GitHubPR> = {}): GitHubPR {
       requiredChecksState: null,
       requiredChecks: [],
     },
+    trunk: null,
     ...over,
   };
 }

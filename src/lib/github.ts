@@ -1,7 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import { getCached, setCache } from "@/lib/cache";
 import { enrichMergeReadiness } from "@/lib/github-merge-readiness";
-import type { GitHubMergeReadiness, GitHubPR } from "@/types";
+import type { GitHubMergeReadiness, GitHubPR, TrunkStatus } from "@/types";
 
 const USER_NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 1 day
 
@@ -66,6 +66,7 @@ export interface RawGitHubPR {
   reviewDecision?: string | null;
   checksState?: string | null;
   mergeReadiness?: GitHubMergeReadiness;
+  trunk?: TrunkStatus | null;
 }
 
 export interface RawGitHubResult {
@@ -138,6 +139,7 @@ export function transformPR(raw: RawGitHubPR): GitHubPR {
       requiredChecksState: null,
       requiredChecks: [],
     },
+    trunk: raw.trunk ?? null,
   };
 }
 

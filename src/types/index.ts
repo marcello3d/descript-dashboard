@@ -22,6 +22,23 @@ export interface GitHubMergeReadiness {
   requiredChecks: string[];
 }
 
+// Parsed from the Trunk merge-queue sticky comment (trunk-io[bot]) on a PR.
+export type TrunkMergeState =
+  | "awaiting" // sticky comment present, PR not in the queue — `/trunk merge` is available
+  | "submitted" // ✨ submitted, waiting for branch protection rules / CI to pass
+  | "waiting_batch" // ⏳ waiting to form a batch
+  | "testing" // 🧪 running tests in the merge queue
+  | "merged" // 😎 merged via the queue
+  | "failed" // ❌ failed tests, removed from the queue (re-submittable)
+  | "canceled"; // 🚫 canceled, removed from the queue (re-submittable)
+
+export interface TrunkStatus {
+  state: TrunkMergeState;
+  label: string; // short, human-readable summary of the state
+  canSubmit: boolean; // a `/trunk merge` command is valid (submit checkbox present)
+  detailsUrl: string | null; // app.trunk.io merge-queue link, when present
+}
+
 export interface GitHubPR {
   id: number;
   title: string;
@@ -48,6 +65,7 @@ export interface GitHubPR {
   slackThreadUrl: string | null; // Slack thread that requested the PR (parsed from body)
   claudeSessionUrl: string | null; // Claude Code session that produced the PR (parsed from body)
   mergeReadiness: GitHubMergeReadiness;
+  trunk: TrunkStatus | null; // Trunk merge-queue status parsed from the PR's trunk-io[bot] comment
 }
 
 export interface CursorAgent {
