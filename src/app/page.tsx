@@ -867,7 +867,7 @@ function isItemClosed(item: WorkItem): boolean {
   const cursorOnly = !item.linear && item.prs.length === 0 && item.agents.length > 0;
   if (cursorOnly) return true;
   const statusType = item.linear?.statusType;
-  if (statusType === "completed" || statusType === "canceled") return true;
+  if (statusType === "completed" || statusType === "canceled" || statusType === "duplicate") return true;
   const isVerify = item.linear?.status.toLowerCase() === "verify";
   const openPrs = item.prs.filter(pr => !pr.closed && !pr.merged);
   const hasMerged = item.prs.some(pr => pr.merged);

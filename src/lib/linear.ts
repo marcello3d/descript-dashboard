@@ -204,7 +204,7 @@ export async function fetchRawAssignedIssues(
     ${ISSUE_FIELDS_FRAGMENT}
     query AssignedIssues {
       viewer {
-        assignedIssues(first: 50, filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+        assignedIssues(first: 50, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) {
           nodes { ...IssueFields }
         }
       }
@@ -235,7 +235,7 @@ export async function fetchRawSubscribedIssues(
           and: [
             { subscribers: { some: { isMe: { eq: true } } } },
             { assignee: { isMe: { eq: false } } },
-            { state: { type: { nin: ["completed", "canceled"] } } }
+            { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }
           ]
         },
         orderBy: updatedAt
