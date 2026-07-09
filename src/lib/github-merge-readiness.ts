@@ -12,7 +12,7 @@ interface RequiredStatusCheck {
   integration_id?: number | null;
 }
 
-interface BranchRules {
+export interface BranchRules {
   requiredStatusChecks: RequiredStatusCheck[];
   requiredApprovingReviewCount: number;
   requiresCodeOwnerReview: boolean;
@@ -29,7 +29,7 @@ interface RepositoryRule {
   } | null;
 }
 
-type CheckContextNode =
+export type CheckContextNode =
   | {
       __typename: "CheckRun";
       name: string;
@@ -43,7 +43,7 @@ type CheckContextNode =
       state: string | null;
     };
 
-interface PullRequestReadinessData {
+export interface PullRequestReadinessData {
   headRefOid: string;
   isDraft: boolean;
   merged: boolean;
@@ -51,17 +51,13 @@ interface PullRequestReadinessData {
   mergeable: string | null;
   mergeStateStatus: string | null;
   reviewDecision: string | null;
-  statusCheckRollup: {
-    state: string | null;
-    contexts: { nodes: CheckContextNode[] };
-  } | null;
   reviewThreads: {
     nodes: { isResolved: boolean }[];
     pageInfo: { hasNextPage: boolean };
-  };
+  } | null;
   comments: {
     nodes: { author: { login: string } | null; body: string }[];
-  };
+  } | null;
 }
 
 interface CheckRunsResponse {
@@ -97,28 +93,6 @@ const PR_READINESS_QUERY = `
         mergeable
         mergeStateStatus
         reviewDecision
-        statusCheckRollup {
-          state
-          contexts(first: 100) {
-            nodes {
-              __typename
-              ... on CheckRun {
-                name
-                status
-                conclusion
-                checkSuite {
-                  app {
-                    databaseId
-                  }
-                }
-              }
-              ... on StatusContext {
-                context
-                state
-              }
-            }
-          }
-        }
         reviewThreads(first: 100) {
           nodes {
             isResolved
@@ -175,21 +149,29 @@ async function enrichOnePr(octokit: Octokit, pr: RawGitHubPR): Promise<void> {
   ]);
 
   const pullRequest = result?.repository?.pullRequest;
-  if (!rules || !pullRequest) {
+  if (!pullRequest) {
     applyUnknownReadiness(pr, "readiness unavailable");
     return;
   }
 
+  // Sync core PR fields and Trunk status before the branch-rules gate: a
+  // failed rules fetch only degrades readiness, it shouldn't wipe these too.
   pr.draft = pullRequest.isDraft;
   pr.merged = pullRequest.merged;
   pr.state = pullRequest.closed ? "closed" : "open";
   pr.reviewDecision = pullRequest.reviewDecision;
-  const requiredContexts = await fetchRequiredCheckContexts(octokit, pr.owner, pr.repo, pullRequest.headRefOid, rules.requiredStatusChecks);
-  pr.mergeReadiness = computeMergeReadiness(pr, pullRequest, rules, requiredContexts);
-  pr.checksState = pr.mergeReadiness.requiredChecksState;
   pr.trunk = trunkStatusFromComments(
     (pullRequest.comments?.nodes ?? []).map(node => ({ author: node.author?.login, body: node.body }))
   );
+
+  if (!rules) {
+    applyUnknownReadiness(pr, "readiness unavailable");
+    return;
+  }
+
+  const requiredContexts = await fetchRequiredCheckContexts(octokit, pr.owner, pr.repo, pullRequest.headRefOid, rules.requiredStatusChecks);
+  pr.mergeReadiness = computeMergeReadiness(pr, pullRequest, rules, requiredContexts);
+  pr.checksState = pr.mergeReadiness.requiredChecksState;
 }
 
 async function fetchBranchRules(octokit: Octokit, owner: string, repo: string, branch: string): Promise<BranchRules | null> {
@@ -212,6 +194,24 @@ async function fetchBranchRules(octokit: Octokit, owner: string, repo: string, b
   }
 }
 
+// GraphQL nulls out just the fields a token can't read (e.g. a fine-grained
+// PAT without "Checks: read" gets FORBIDDEN on check-run nodes) but
+// octokit.graphql throws whenever ANY error is present — even alongside a
+// perfectly usable partial payload. Salvage that payload instead of
+// discarding the whole PR.
+export function graphqlErrorData<T>(error: unknown): T | null {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    (error as Error).name === "GraphqlResponseError" &&
+    "data" in error &&
+    (error as { data: unknown }).data
+  ) {
+    return (error as { data: T }).data;
+  }
+  return null;
+}
+
 async function fetchPullRequestReadiness(
   octokit: Octokit,
   owner: string,
@@ -220,8 +220,8 @@ async function fetchPullRequestReadiness(
 ): Promise<PullRequestReadinessResult | null> {
   try {
     return await octokit.graphql<PullRequestReadinessResult>(PR_READINESS_QUERY, { owner, repo, number });
-  } catch {
-    return null;
+  } catch (error) {
+    return graphqlErrorData<PullRequestReadinessResult>(error);
   }
 }
 
@@ -242,6 +242,8 @@ async function fetchRequiredCheckContexts(
   return [...checkRunContexts, ...statusContexts];
 }
 
+const CHECK_RUNS_FORBIDDEN_TTL = 24 * 60 * 60 * 1000;
+
 async function fetchRequiredCheckRuns(
   octokit: Octokit,
   owner: string,
@@ -249,6 +251,13 @@ async function fetchRequiredCheckRuns(
   ref: string,
   requiredChecks: RequiredStatusCheck[]
 ): Promise<CheckContextNode[]> {
+  // A 403 means the token can't read check runs on this repo at all (e.g. a
+  // fine-grained PAT without "Checks: read"). Remember that per-repo instead
+  // of burning one failed request per required check on every sync; the
+  // mergeStateStatus fallback in computeMergeReadiness covers the gap.
+  const forbiddenKey = `github:check-runs-forbidden:${owner}/${repo}`;
+  if (getCached<boolean>(forbiddenKey)) return [];
+
   const contexts: CheckContextNode[] = [];
 
   await Promise.all(requiredChecks.map(async (check) => {
@@ -270,8 +279,11 @@ async function fetchRequiredCheckRuns(
           checkSuite: { app: { databaseId: run.app?.id ?? null } },
         });
       }
-    } catch {
+    } catch (error) {
       // Missing exact check data is handled as pending by the readiness reducer.
+      if ((error as { status?: number }).status === 403) {
+        setCache(forbiddenKey, true, CHECK_RUNS_FORBIDDEN_TTL);
+      }
     }
   }));
 
@@ -327,13 +339,25 @@ function parseBranchRules(rules: RepositoryRule[]): BranchRules {
   return branchRules;
 }
 
-function computeMergeReadiness(
+// mergeStateStatus values where GitHub has itself verified every required
+// check: CLEAN (merge box green), UNSTABLE (only non-required checks failing),
+// HAS_HOOKS (passing, pre-receive hooks pending). Used as a fallback when
+// per-check data is unreadable — required checks still pending would be
+// BLOCKED, never one of these.
+const CHECKS_SATISFIED_MERGE_STATES = new Set(["CLEAN", "UNSTABLE", "HAS_HOOKS"]);
+
+export function computeMergeReadiness(
   pr: RawGitHubPR,
   pullRequest: PullRequestReadinessData,
   rules: BranchRules,
   contexts: CheckContextNode[]
 ): GitHubMergeReadiness {
-  const requiredChecksState = getRequiredChecksState(rules.requiredStatusChecks, contexts);
+  let requiredChecksState = getRequiredChecksState(rules.requiredStatusChecks, contexts);
+  // No per-check visibility (403 on check-runs) reads as PENDING; trust
+  // GitHub's aggregate merge state before reporting checks forever-pending.
+  if (requiredChecksState === "PENDING" && CHECKS_SATISFIED_MERGE_STATES.has(normalize(pullRequest.mergeStateStatus))) {
+    requiredChecksState = "SUCCESS";
+  }
   const reasons: string[] = [];
 
   if (pr.baseBranch && pr.baseBranch !== "main") reasons.push(`stacked on ${pr.baseBranch}`);
@@ -355,8 +379,8 @@ function computeMergeReadiness(
   }
 
   if (rules.requiresReviewThreadResolution) {
-    const hasUnresolvedThread = pullRequest.reviewThreads.nodes.some(thread => !thread.isResolved);
-    if (hasUnresolvedThread || pullRequest.reviewThreads.pageInfo.hasNextPage) {
+    const hasUnresolvedThread = (pullRequest.reviewThreads?.nodes ?? []).some(thread => !thread.isResolved);
+    if (hasUnresolvedThread || pullRequest.reviewThreads?.pageInfo?.hasNextPage) {
       reasons.push("review threads unresolved");
     }
   }
