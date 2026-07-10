@@ -34,6 +34,9 @@ function getDb(): Database.Database {
     } catch {
       // column already exists
     }
+    // The stats/recent queries filter and window by created_at on every emit;
+    // without this they full-scan a table that grows unbounded across syncs.
+    db.exec("CREATE INDEX IF NOT EXISTS idx_api_calls_created_at ON api_calls(created_at)");
   }
   return db;
 }
@@ -55,6 +58,14 @@ export function getCached<T>(key: string, ignoreExpiry = false): T | null {
   return JSON.parse(row.data) as T;
 }
 
+// api_calls is an append-only log used only for the stats popover, so keep a
+// day of it and prune the rest. Pruning is throttled to hourly (module-scoped
+// so it survives across requests in the long-lived server process) — the read
+// queries stay cheap and the table stops growing without a delete per insert.
+const API_CALLS_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastPruneAt = 0;
+
 export function logApiCall(
   service: string,
   endpoint: string,
@@ -62,11 +73,16 @@ export function logApiCall(
   durationMs: number,
   opts?: { error?: string; cost?: number }
 ): void {
-  getDb()
-    .prepare(
-      "INSERT INTO api_calls (service, endpoint, status, duration_ms, cost, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    )
-    .run(service, endpoint, status, Math.round(durationMs), opts?.cost ?? null, opts?.error ?? null, Date.now());
+  const now = Date.now();
+  const db = getDb();
+  db.prepare(
+    "INSERT INTO api_calls (service, endpoint, status, duration_ms, cost, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(service, endpoint, status, Math.round(durationMs), opts?.cost ?? null, opts?.error ?? null, now);
+
+  if (now - lastPruneAt > PRUNE_INTERVAL_MS) {
+    lastPruneAt = now;
+    db.prepare("DELETE FROM api_calls WHERE created_at < ?").run(now - API_CALLS_RETENTION_MS);
+  }
 }
 
 export interface ApiCallStats {
@@ -112,12 +128,15 @@ export function getRecentApiCalls(limit = 50): RecentApiCall[] {
   // Uses a window function to group cache hits with the preceding real call
   return getDb()
     .prepare(`
-      WITH numbered AS (
+      WITH recent AS (
+        SELECT * FROM api_calls ORDER BY created_at DESC LIMIT 5000
+      ),
+      numbered AS (
         SELECT *,
           SUM(CASE WHEN status != 'cached' THEN 1 ELSE 0 END) OVER (
             PARTITION BY service, endpoint ORDER BY created_at DESC
           ) as grp
-        FROM api_calls
+        FROM recent
       )
       SELECT
         service, endpoint,
