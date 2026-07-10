@@ -154,7 +154,8 @@ export function transformPRs(raw: RawGitHubPR[]): GitHubPR[] {
 // Best case (nothing changed): 3 search points (from search bucket). Worst case: 3 + N core points.
 export async function fetchRawAuthoredPRs(
   accessToken: string,
-  previousPrs?: RawGitHubPR[]
+  previousPrs?: RawGitHubPR[],
+  onReadinessProgress?: (done: number, total: number) => void
 ): Promise<RawGitHubResult> {
   const octokit = new Octokit({ auth: accessToken });
 
@@ -217,15 +218,11 @@ export async function fetchRawAuthoredPRs(
 
   console.log(`[GitHub] ${searchItems.length} PRs: ${reusable.size} unchanged, ${needFetch.length} need refresh`);
 
-  // Phase 3: Fetch full details only for changed PRs via REST (1 core point each)
-  // Get core rate limit before
-  let coreBefore: number | undefined;
-  try {
-    const rlBefore = await octokit.rest.rateLimit.get();
-    coreBefore = rlBefore.data.resources.core.remaining;
-  } catch { /* ignore */ }
-
+  // Phase 3: Fetch full details only for changed PRs via REST (1 core point each).
+  // Core rate limit is read off the response headers of these calls rather than
+  // a dedicated rateLimit.get probe (which would add two serial round trips).
   const freshPrs = new Map<number, RawGitHubPR>();
+  let coreHeaders: Record<string, string | number> | undefined;
 
   // Fetch in parallel, batches of 10 to avoid overwhelming
   for (let i = 0; i < needFetch.length; i += 10) {
@@ -234,9 +231,10 @@ export async function fetchRawAuthoredPRs(
       batch.map(async (item) => {
         const [owner, repo] = item.repository_url.split("/").slice(-2);
         try {
-          const { data: pr } = await octokit.rest.pulls.get({
+          const { data: pr, headers } = await octokit.rest.pulls.get({
             owner, repo, pull_number: item.number,
           });
+          coreHeaders = headers as Record<string, string | number>;
 
           // Fetch reviews for non-draft PRs
           let reviews: { login: string; state: string }[] = [];
@@ -308,23 +306,28 @@ export async function fetchRawAuthoredPRs(
     if (pr) allPrs.push(pr);
   }
 
-  await enrichMergeReadiness(octokit, allPrs);
+  await enrichMergeReadiness(octokit, allPrs, onReadinessProgress);
 
-  // Get actual core cost from rate limit delta
+  // Core rate limit from the detail-fetch response headers (no extra probe).
+  // When nothing changed there are no core calls, so leave it undefined and let
+  // the caller keep the last-known value. Cost is approximated from the number
+  // of changed PRs (pulls.get + listReviews each) since we no longer diff a
+  // before/after remaining count.
   let rateLimit: RawGitHubResult["rateLimit"];
   let searchRateLimit: RawGitHubResult["searchRateLimit"];
-  try {
-    const rlAfter = await octokit.rest.rateLimit.get();
-    const core = rlAfter.data.resources.core;
-    const actualCost = coreBefore != null ? coreBefore - core.remaining : needFetch.length * 2;
-    rateLimit = {
-      cost: actualCost,
-      remaining: core.remaining,
-      limit: core.limit,
-      resetAt: new Date(core.reset * 1000).toISOString(),
-    };
-    console.log(`[GitHub] Core cost: ${actualCost} (${core.remaining}/${core.limit}) | Search: ${searchRemaining}/${searchLimit}`);
-  } catch { /* ignore */ }
+  if (coreHeaders) {
+    const remaining = Number(coreHeaders["x-ratelimit-remaining"]);
+    const limit = Number(coreHeaders["x-ratelimit-limit"]);
+    const reset = Number(coreHeaders["x-ratelimit-reset"]);
+    if (!isNaN(remaining) && !isNaN(limit)) {
+      rateLimit = {
+        cost: needFetch.length * 2,
+        remaining,
+        limit,
+        resetAt: new Date(reset * 1000).toISOString(),
+      };
+    }
+  }
 
   // Search rate limit from response headers (more accurate than rateLimit.get())
   if (!isNaN(searchRemaining) && !isNaN(searchLimit)) {
@@ -557,84 +560,6 @@ export async function fetchRawReviewRequestedPRs(
   const viewerLogin = await octokit.rest.users.getAuthenticated().then(r => r.data.login).catch(() => "");
 
   return { prs: allPrs, viewerLogin };
-}
-
-interface BugBotThreadsResult {
-  repository: {
-    pullRequest: {
-      reviewThreads: {
-        nodes: {
-          isResolved: boolean;
-          comments: { nodes: { author: { login: string } | null; url: string }[] };
-        }[];
-      };
-    };
-  };
-}
-
-const BUG_BOT_THREADS_QUERY = `
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      pullRequest(number: $number) {
-        reviewThreads(first: 100) {
-          nodes {
-            isResolved
-            comments(first: 1) {
-              nodes { author { login } url }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-const BUG_BOT_LOGIN = "cursor";
-
-export async function fetchBugBotThreads(
-  accessToken: string,
-  prs: RawGitHubPR[]
-): Promise<Map<number, string[]>> {
-  const octokit = new Octokit({ auth: accessToken });
-  const urls = new Map<number, string[]>();
-
-  const openPrs = prs.filter(pr => pr.state === "open" && !pr.merged);
-  if (openPrs.length === 0) return urls;
-
-  const prNumberRe = /\/pull\/(\d+)$/;
-  const BATCH_SIZE = 5;
-
-  for (let i = 0; i < openPrs.length; i += BATCH_SIZE) {
-    const batch = openPrs.slice(i, i + BATCH_SIZE);
-    await Promise.all(
-      batch.map(async (pr) => {
-        try {
-          const m = pr.url.match(prNumberRe);
-          if (!m) return;
-          const number = parseInt(m[1], 10);
-
-          const result = await octokit.graphql<BugBotThreadsResult>(BUG_BOT_THREADS_QUERY, {
-            owner: pr.owner,
-            repo: pr.repo,
-            number,
-          });
-
-          const threads = result?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
-          const unresolved: string[] = [];
-          for (const t of threads) {
-            if (t.isResolved) continue;
-            const first = t.comments?.nodes?.[0];
-            if (first?.author?.login !== BUG_BOT_LOGIN) continue;
-            if (first.url) unresolved.push(first.url);
-          }
-
-          if (unresolved.length > 0) urls.set(pr.id, unresolved);
-        } catch { /* ignore per-PR failures */ }
-      })
-    );
-  }
-
-  return urls;
 }
 
 export function transformReviewPRs(raw: RawGitHubPR[]): GitHubPR[] {
