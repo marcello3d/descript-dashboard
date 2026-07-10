@@ -148,7 +148,7 @@ function getPrNumber(url: string): string {
 const theadClass =
   "[&>tr>th]:sticky [&>tr>th]:top-[calc(var(--titlebar-height,0px)+var(--work-header-h,52px))] [&>tr>th]:z-10 [&>tr>th]:bg-background [&>tr>th]:!py-1";
 const sectionHeaderClass =
-  "sticky top-[calc(var(--titlebar-height,0px)+var(--work-header-h,52px)+36px)] z-[5] bg-surface-alt";
+  "sticky top-[calc(var(--titlebar-height,0px)+var(--work-header-h,52px)+32px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 // Same row, minus the bottom divider — used to visually fuse the rows of a
 // stack (a multi-PR ticket + its PR rows) into one group.
@@ -2882,7 +2882,7 @@ function Home() {
   return (
     <div className="w-full px-4 py-4" style={{ "--titlebar-height": `${titlebarHeight}px` } as React.CSSProperties}>
       {isElectron && <div className="h-[38px] -mx-4 -mt-4 sticky top-0 z-30 bg-background" data-drag-region />}
-      <header ref={headerRef} className="sticky top-[var(--titlebar-height,0px)] z-20 bg-background pt-3 pb-1 -mt-3">
+      <header ref={headerRef} className="sticky top-[var(--titlebar-height,0px)] z-20 bg-background pt-1 pb-1">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
