@@ -430,20 +430,24 @@ function DiffStats({ additions, deletions }: { additions: number; deletions: num
   );
 }
 
-function AgentInfo({ agent }: { agent: CursorAgent }) {
-  const s = agent.status.toLowerCase();
+// A small status dot overlaid on the Cursor icon (green running / red failed /
+// yellow otherwise), so agent status costs no horizontal space — the status is
+// spelled out in the icon's tooltip. Finished agents show no dot.
+function AgentStatusDot({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === "finished") return null;
   const color =
     s === "running" || s === "in_progress"
-      ? "text-status-green"
+      ? "bg-status-green"
       : s === "failed" || s === "error"
-      ? "text-status-red"
-      : "text-text-tertiary";
-
-  // Return null (not an empty span) — an empty flex child still picks up the
-  // parent's gap, leaving phantom space after the icon.
-  if (s === "finished") return null;
-
-  return <span className={`text-xs ${color}`}>{s}</span>;
+      ? "bg-status-red"
+      : "bg-status-yellow";
+  return (
+    <span
+      className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-surface ${color}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 function ServiceHeader({
@@ -771,12 +775,14 @@ function LinksCell({
             href={agent.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${linkIconClass} inline-flex items-center gap-1 text-text-secondary hover:text-text-primary`}
-            title="Open Cursor agent"
-            aria-label="Open Cursor agent"
+            className={`${linkIconClass} inline-flex items-center text-text-secondary hover:text-text-primary`}
+            title={`Cursor agent — ${agent.status.toLowerCase()}`}
+            aria-label={`Open Cursor agent (${agent.status.toLowerCase()})`}
           >
-            <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
-            <AgentInfo agent={agent} />
+            <span className="relative inline-flex">
+              <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
+              <AgentStatusDot status={agent.status} />
+            </span>
           </a>
         ) : canCreateAgent ? (
           <CreateAgentButton pr={createPr!} linear={linear} title={title} onCreated={onAgentCreated!} />
