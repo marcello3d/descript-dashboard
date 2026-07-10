@@ -390,15 +390,18 @@ function CopyBranchButton({ branch }: { branch: string }) {
   );
 }
 
-function SectionHeader({ label, count, colSpan, collapsed, onToggle, isDraft }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void; isDraft?: boolean }) {
+function SectionHeader({ label, count, colSpan, collapsed, onToggle, isDraft, first }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void; isDraft?: boolean; first?: boolean }) {
   return (
     <>
       {/* Non-sticky grey spacer: gives the section header breathing room above
           the label, but scrolls away so the stuck header is a clean normal-height
-          row. Same grey as the label row, no border between them. */}
-      <tr className="bg-surface-alt" aria-hidden="true">
-        <td colSpan={colSpan} className="h-3 p-0" />
-      </tr>
+          row. Same grey as the label row, no border between them. Skipped for the
+          first header — it already sits right under the column header. */}
+      {!first && (
+        <tr className="bg-surface-alt" aria-hidden="true">
+          <td colSpan={colSpan} className="h-3 p-0" />
+        </tr>
+      )}
       <tr className={sectionHeaderClass}>
         <td colSpan={colSpan} className="py-1.5 px-2">
           <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer inline-flex items-center gap-1.5">
@@ -599,11 +602,11 @@ function ReviewQueue({ items: reviewItems, favorites, onToggleFavorite, archived
             </th>
           </tr>
         </thead>
-        {groups.map(({ label, items, isDraft }) => {
+        {groups.map(({ label, items, isDraft }, groupIdx) => {
         const collapseKey = isDraft ? `${label}|draft` : label;
         return (
         <tbody key={collapseKey}>
-          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(collapseKey)} onToggle={() => onToggleCollapsed(collapseKey)} isDraft={isDraft} />}
+          {groups.length > 1 && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(collapseKey)} onToggle={() => onToggleCollapsed(collapseKey)} isDraft={isDraft} first={groupIdx === 0} />}
           {!collapsed.has(collapseKey) && items.map(item => (
             <tr key={item.id} className={tableRowClass} data-item-id={item.id} data-highlight={highlightedId === item.id ? "true" : undefined}>
               <td className="py-1.5 px-0 w-[44px]">
@@ -904,9 +907,9 @@ function WorkItemTable({
           </th>
         </tr>
       </thead>
-      {groups.map(({ label, items, stackMetaMap }) => (
+      {groups.map(({ label, items, stackMetaMap }, groupIdx) => (
       <tbody key={label}>
-        {groups.length > 1 && label && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} />}
+        {groups.length > 1 && label && <SectionHeader label={label} count={items.length} colSpan={colCount} collapsed={collapsed.has(label)} onToggle={() => onToggleCollapsed(label)} first={groupIdx === 0} />}
         {!collapsed.has(label) && items.map((item) => {
           const stackMeta = stackMetaMap?.get(item.id);
           const lastUpdated = getLastUpdated(item);
@@ -2403,7 +2406,7 @@ function CompletedTable({
           </th>
         </tr>
       </thead>
-      {buckets.map(({ label, items }) => (
+      {buckets.map(({ label, items }, groupIdx) => (
         <tbody key={label}>
           <SectionHeader
             label={label}
@@ -2411,6 +2414,7 @@ function CompletedTable({
             colSpan={colCount}
             collapsed={collapsed.has(label)}
             onToggle={() => onToggleCollapsed(label)}
+            first={groupIdx === 0}
           />
           {!collapsed.has(label) && items.map((item) => {
             const issue = item.linear;
