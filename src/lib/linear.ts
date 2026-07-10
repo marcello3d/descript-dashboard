@@ -204,7 +204,7 @@ export async function fetchRawAssignedIssues(
     ${ISSUE_FIELDS_FRAGMENT}
     query AssignedIssues {
       viewer {
-        assignedIssues(first: 50, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) {
+        assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }) {
           nodes { ...IssueFields }
         }
       }
