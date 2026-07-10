@@ -50,19 +50,29 @@ function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?:
 // parent being a `flex items-center` row (self-stretch → full content height).
 function TreeConnector({ lines, isLast }: { lines: boolean[]; isLast: boolean }) {
   const LEVEL = "relative w-[20px]";
-  const VLINE = "absolute left-1/2 -translate-x-1/2 -top-1.5 -bottom-1.5 w-px bg-text-muted/70";
+  const LINE = "bg-text-muted/70";
+  const BORDER = "border-text-muted/70";
+  // Standard tree: each elbow is a self-contained `└` sitting under its parent's
+  // text — its short up-stub bleeds 8px into the padding gap above. A tee (`├`,
+  // a node with a following sibling) continues 8px down, so the next sibling's
+  // up-stub meets it in the gap: siblings touch, nested elbows don't. Ancestor
+  // guides span full height. Verticals are inset `left-2.5` (past the column
+  // edge + the connector's `mr-1.5` text gap) so a nested elbow tucks under its
+  // parent's text rather than sitting left of it, and the elbow arm stays short.
+  const GUIDE = `absolute left-2.5 -top-2 -bottom-2 w-px ${LINE}`;
   return (
-    <span className="self-stretch flex flex-shrink-0" aria-hidden="true">
+    <span className="self-stretch flex flex-shrink-0 mr-1.5" aria-hidden="true">
       {lines.map((hasLine, i) => (
-        <span key={i} className={LEVEL}>{hasLine && <span className={VLINE} />}</span>
+        <span key={i} className={LEVEL}>{hasLine && <span className={GUIDE} />}</span>
       ))}
       <span className={LEVEL}>
         {isLast ? (
-          <span className="absolute left-1/2 -top-1.5 bottom-1/2 right-1 border-l border-b border-text-muted/70 rounded-bl-md" />
+          // rounded elbow: left border = vertical, bottom border = horizontal
+          <span className={`absolute left-2.5 right-0 -top-2 bottom-1/2 border-l border-b ${BORDER} rounded-bl-md`} />
         ) : (
           <>
-            <span className={VLINE} />
-            <span className="absolute left-1/2 right-1 top-1/2 -translate-y-1/2 h-px bg-text-muted/70" />
+            <span className={`absolute left-2.5 -top-2 -bottom-2 w-px ${LINE}`} />
+            <span className={`absolute left-2.5 right-0 top-1/2 -translate-y-1/2 h-px ${LINE}`} />
           </>
         )}
       </span>
@@ -895,7 +905,7 @@ function WorkItemTable({
             return (
               <React.Fragment key={item.id}>
                 <tr
-                  className={tableRowClass}
+                  className={tableRowClassNoBorder}
                   data-item-id={item.id}
                   data-highlight={highlightedId === item.id ? "true" : undefined}
                 >
@@ -974,12 +984,12 @@ function WorkItemTable({
                   <td className="py-1.5 px-1 whitespace-nowrap" />
                   <td className="py-1.5 px-1 whitespace-nowrap" />
                 </tr>
-                {forest.map((node) => {
+                {forest.map((node, idx) => {
                   const pr = node.pr;
                   const agent = item.agents.find(a => a.prUrl === pr.url);
                   const prClosed = pr.merged || pr.closed;
                   return (
-                    <tr key={`${item.id}:pr:${pr.id}`} className={tableRowClass}>
+                    <tr key={`${item.id}:pr:${pr.id}`} className={idx === forest.length - 1 ? tableRowClass : tableRowClassNoBorder}>
                       <td className="py-1.5 px-0 w-[44px]" />
                       <td className="py-1.5 px-2 text-right">
                         {(() => {
