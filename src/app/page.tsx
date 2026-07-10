@@ -135,11 +135,20 @@ function getPrNumber(url: string): string {
   return url.match(/\/pull\/(\d+)/)?.[1] ?? "";
 }
 
-// NOTE: opaque background (no backdrop-blur). WebKit double-paints a
-// `position: sticky` <thead> when it carries a backdrop-filter, producing a
-// ghosted/duplicated header in Safari; an opaque bg avoids the buggy path.
-const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background";
-const sectionHeaderClass = "sticky top-[calc(var(--titlebar-height,0px)+84px)] z-[5] bg-surface-alt";
+// Sticky header applied to the <th> CELLS, not the <thead>. WebKit doesn't paint
+// a table section's (<thead>/<tr>) background as an occluding layer, so a sticky
+// <thead> lets scrolled content bleed through it in Safari; sticky cells with
+// their own opaque background occlude reliably across browsers.
+//
+// The vertical offsets are driven by `--work-header-h` — the measured height of
+// the page header (see the ResizeObserver in the Dashboard component) — so the
+// column header sticks flush under the page header instead of behind it, and the
+// section header sticks flush under the column header (36px). Fallbacks match the
+// previous hardcoded values in case the var hasn't been set yet.
+const theadClass =
+  "[&>tr>th]:sticky [&>tr>th]:top-[calc(var(--titlebar-height,0px)+var(--work-header-h,52px))] [&>tr>th]:z-10 [&>tr>th]:bg-background";
+const sectionHeaderClass =
+  "sticky top-[calc(var(--titlebar-height,0px)+var(--work-header-h,52px)+36px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 // Same row, minus the bottom divider — used to visually fuse the rows of a
 // stack (a multi-PR ticket + its PR rows) into one group.
@@ -2519,6 +2528,7 @@ function Home() {
     () => typeof navigator !== "undefined" && navigator.userAgent.includes("Electron"),
   );
   const titlebarHeight = isElectron ? 38 : 0;
+  const headerRef = useRef<HTMLElement>(null);
 
   const searchParams = useSearchParams();
 
@@ -2854,11 +2864,25 @@ function Home() {
     document.title = pageTitle;
   }, [pageTitle]);
 
+  // Publish the page header's height so the sticky table/section headers can
+  // sit flush beneath it (see theadClass / sectionHeaderClass). The header
+  // height changes with the summary line / window width, so track it live.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () =>
+      document.documentElement.style.setProperty("--work-header-h", `${el.offsetHeight}px`);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
 
   return (
     <div className="w-full px-4 py-4" style={{ "--titlebar-height": `${titlebarHeight}px` } as React.CSSProperties}>
       {isElectron && <div className="h-[38px] -mx-4 -mt-4 sticky top-0 z-30 bg-background" data-drag-region />}
-      <header className="mb-1 sticky top-[var(--titlebar-height,0px)] z-20 bg-background/70 backdrop-blur-[2px] py-3 -mt-3">
+      <header ref={headerRef} className="mb-1 sticky top-[var(--titlebar-height,0px)] z-20 bg-background py-3 -mt-3">
         <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-text-primary">Dashboard</h1>
         <ToggleGroup
