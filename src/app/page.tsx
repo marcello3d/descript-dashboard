@@ -135,7 +135,10 @@ function getPrNumber(url: string): string {
   return url.match(/\/pull\/(\d+)/)?.[1] ?? "";
 }
 
-const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
+// NOTE: opaque background (no backdrop-blur). WebKit double-paints a
+// `position: sticky` <thead> when it carries a backdrop-filter, producing a
+// ghosted/duplicated header in Safari; an opaque bg avoids the buggy path.
+const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background";
 const sectionHeaderClass = "sticky top-[calc(var(--titlebar-height,0px)+84px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
 // Same row, minus the bottom divider — used to visually fuse the rows of a
