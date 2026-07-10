@@ -151,15 +151,18 @@ describe("computeMergeReadiness", () => {
 });
 
 describe("enrichMergeReadiness with a partial GraphQL response", () => {
-  // Simulates the exact production failure: the readiness query throws with
-  // FORBIDDEN errors on check-run nodes but full data otherwise, and the REST
-  // check-runs endpoint 403s. Trunk status and readiness must both survive.
+  // Simulates the production failure: the readiness query throws with FORBIDDEN
+  // errors on the check nodes (statusCheckRollup) but full data otherwise. The
+  // partial payload is salvaged, contexts come back empty, and readiness falls
+  // back to mergeStateStatus. Trunk status and readiness must both survive.
   it("salvages trunk status and readiness when check data is forbidden", async () => {
+    // Batched readiness queries alias each PR as pr0, pr1, … — the salvaged
+    // partial payload from a FORBIDDEN error keeps that aliased shape.
     const partialData = {
-      repository: {
+      pr0: {
         pullRequest: makePullRequest({
           comments: {
-            nodes: [{ author: { login: "trunk-io" }, body: TRUNK_AWAITING_COMMENT }],
+            nodes: [{ id: "IC_trunk", author: { login: "trunk-io" } }],
           },
         }),
       },
@@ -169,17 +172,14 @@ describe("enrichMergeReadiness with a partial GraphQL response", () => {
       { type: "pull_request", parameters: { required_approving_review_count: 1 } },
     ];
     const fakeOctokit = {
-      graphql: async () => {
+      graphql: async (query: string) => {
+        // Second pass fetches the Trunk sticky body by node id; the readiness
+        // query itself fails FORBIDDEN with a salvageable partial payload.
+        if (query.includes("IssueComment")) return { c0: { body: TRUNK_AWAITING_COMMENT } };
         throw new FakeGraphqlResponseError(partialData);
       },
       request: async (route: string) => {
         if (route.includes("/rules/branches/")) return { data: rulesPayload };
-        if (route.includes("check-runs")) {
-          const error = new Error("Resource not accessible by personal access token") as Error & { status: number };
-          error.status = 403;
-          throw error;
-        }
-        if (route.includes("/status")) return { data: { statuses: [] } };
         throw new Error(`unexpected route: ${route}`);
       },
     } as unknown as Octokit;

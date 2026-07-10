@@ -128,7 +128,7 @@ export default function LinearStatusDropdown({
 
   return (
     <div
-      className={`relative flex items-center gap-1.5 py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors ${updating ? "opacity-50 pointer-events-none" : ""}`}
+      className={`relative flex items-center gap-1.5 py-1.5 px-1.5 -my-1 rounded hover:bg-fill-muted transition-colors ${updating ? "opacity-50 pointer-events-none" : ""}`}
       ref={dropdownRef}
     >
       <button

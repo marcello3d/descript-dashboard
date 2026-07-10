@@ -8,7 +8,7 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      function emit(done: boolean, step: number, totalSteps: number, result: { viewerLogin: string; rateLimits: Record<string, unknown>; errors: string[] }) {
+      function emit(done: boolean, progress: { step: number; totalSteps: number } | null, result: { viewerLogin: string; rateLimits: Record<string, unknown>; errors: string[] }) {
         const items = getWorkItems();
         const reviewItems = getReviewItems();
         const allTags = getAllTags();
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
           errors: [...result.errors],
           stats: getApiCallStats(),
           recent: getRecentApiCalls(100),
-          progress: { step, totalSteps },
+          progress,
           done,
         });
         controller.enqueue(encoder.encode(line + "\n"));
@@ -36,20 +36,20 @@ export async function GET(request: Request) {
         partialResult.viewerLogin = ghStatus.meta.viewerLogin as string;
       }
 
-      // Phase 0: Emit current DB state immediately
-      emit(false, 0, 10, partialResult);
+      // Phase 0: Emit current DB state immediately (no progress bar yet)
+      emit(false, null, partialResult);
 
       const result = await sync({
         force: bypass,
         onProgress: ({ step, totalSteps }) => {
-          emit(false, step, totalSteps, partialResult);
+          emit(false, { step, totalSteps }, partialResult);
         },
       });
 
       partialResult.viewerLogin = result.viewerLogin;
       partialResult.rateLimits = result.rateLimits;
       partialResult.errors = result.errors;
-      emit(true, 10, 10, partialResult);
+      emit(true, null, partialResult);
       controller.close();
     },
   });

@@ -38,8 +38,36 @@ function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?:
   if (!pr) return <SiGithub className="w-3.5 h-3.5 text-text-muted" />;
   if (pr.closed) return <ClosedPrIcon />;
   if (pr.merged) return <MergedPrIcon />;
-  if (pr.draft) return <DraftPrIcon />;
+  if (pr.draft) return <DraftPrIcon className="w-3.5 h-3.5 flex-shrink-0 text-text-muted" />;
   return <OpenPrIcon />;
+}
+
+// Stack/tree connector drawn with crisp 1px CSS lines instead of box-drawing
+// glyphs: a rounded elbow for the last child, a straight tee otherwise. Each
+// ancestor level that still has following siblings draws a vertical
+// continuation line. Lines bleed 6px into the row's vertical padding
+// (-top-1.5 / -bottom-1.5) so they join seamlessly across rows. Relies on the
+// parent being a `flex items-center` row (self-stretch → full content height).
+function TreeConnector({ lines, isLast }: { lines: boolean[]; isLast: boolean }) {
+  const LEVEL = "relative w-[20px]";
+  const VLINE = "absolute left-1/2 -translate-x-1/2 -top-1.5 -bottom-1.5 w-px bg-text-muted/70";
+  return (
+    <span className="self-stretch flex flex-shrink-0" aria-hidden="true">
+      {lines.map((hasLine, i) => (
+        <span key={i} className={LEVEL}>{hasLine && <span className={VLINE} />}</span>
+      ))}
+      <span className={LEVEL}>
+        {isLast ? (
+          <span className="absolute left-1/2 -top-1.5 bottom-1/2 right-1 border-l border-b border-text-muted/70 rounded-bl-md" />
+        ) : (
+          <>
+            <span className={VLINE} />
+            <span className="absolute left-1/2 right-1 top-1/2 -translate-y-1/2 h-px bg-text-muted/70" />
+          </>
+        )}
+      </span>
+    </span>
+  );
 }
 
 // GitHub PR review status icons (Octicons)
@@ -100,7 +128,10 @@ function getPrNumber(url: string): string {
 const theadClass = "sticky top-[calc(var(--titlebar-height,0px)+52px)] z-10 bg-background/70 backdrop-blur-[2px]";
 const sectionHeaderClass = "sticky top-[calc(var(--titlebar-height,0px)+84px)] z-[5] bg-surface-alt";
 const tableRowClass = "border-b border-border-muted hover:bg-surface-hover transition-colors group";
-const cellLink = "py-1.5 px-2 -my-1 rounded hover:bg-fill-muted transition-colors";
+// Same row, minus the bottom divider — used to visually fuse the rows of a
+// stack (a multi-PR ticket + its PR rows) into one group.
+const tableRowClassNoBorder = "hover:bg-surface-hover transition-colors group";
+const cellLink = "py-1.5 px-1.5 -my-1 rounded hover:bg-fill-muted transition-colors";
 const cellLinkFlex = `flex items-center gap-1.5 ${cellLink}`;
 const iconButtonClass = "text-text-tertiary hover:text-text-secondary transition-all p-1";
 
@@ -131,8 +162,8 @@ function LinearIssueLink({ issue }: { issue: LinearIssue }) {
 function PrCellLink({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void }) {
   const isStacked = pr.baseBranch && pr.baseBranch !== "main" && pr.baseBranch !== "master";
   return (
-    <div className="flex flex-col gap-0.5 items-start">
-      <span className="relative inline-flex items-center gap-1">
+    <div className="flex flex-row items-center gap-1">
+      <span className="inline-flex items-center gap-1">
         <a
           href={pr.url}
           target="_blank"
@@ -157,6 +188,11 @@ function PrCellLink({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void }) {
             </button>
           )}
         </a>
+        <CopyBranchButton branch={pr.branch} />
+      </span>
+      {/* fixed-width slot so a bug-bot badge lives in its own column and never
+          shifts the merge button (empty on PRs with no bug-bot findings) */}
+      <span className="w-7 flex justify-center flex-shrink-0">
         {pr.bugBotThreadCount > 0 && (
           <a
             href={pr.bugBotThreadUrls?.[0] ?? pr.url}
@@ -169,10 +205,6 @@ function PrCellLink({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void }) {
             <span className="text-[11px]">{pr.bugBotThreadCount}</span>
           </a>
         )}
-        {/* out of flow so the hover-only button doesn't widen the column */}
-        <span className="absolute left-full top-1/2 -translate-y-1/2 z-10">
-          <CopyBranchButton branch={pr.branch} />
-        </span>
       </span>
       <TrunkMergeCell pr={pr} onMerged={onMerged} />
     </div>
@@ -190,7 +222,7 @@ function TrunkMergeCell({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void 
   // No Trunk comment → can't post `/trunk merge`; keep the original readiness label.
   if (!trunk) {
     return ready ? (
-      <span className="text-xs text-status-green font-medium ml-4">Ready to merge</span>
+      <span className="text-xs text-status-green font-medium">Ready to merge</span>
     ) : null;
   }
 
@@ -203,47 +235,63 @@ function TrunkMergeCell({ pr, onMerged }: { pr: GitHubPR; onMerged?: () => void 
   };
   const queuedColor = queued[trunk.state];
   if (queuedColor) {
-    return (
-      <div className="ml-4">
-        <TrunkStatusLabel color={queuedColor} label={trunk.label} url={trunk.detailsUrl} />
-      </div>
-    );
+    // Collapse the verbose in-flight labels to a single "In merge queue"; the
+    // full state is kept as a tooltip. "Merged" is terminal, so leave it.
+    const label = trunk.state === "merged" ? "Merged" : "In merge queue";
+    return <TrunkStatusLabel color={queuedColor} label={label} title={trunk.label} url={trunk.detailsUrl} />;
   }
 
   // Submittable states (awaiting / failed / canceled) → show the merge button.
+  // Readiness is carried by the button's color, not a separate label.
   return (
-    <div className="ml-4 flex items-center gap-2">
+    <div className="flex items-center gap-2">
       {trunk.state === "failed" && (
         <TrunkStatusLabel color="text-status-red" label="Merge failed" url={trunk.detailsUrl} />
       )}
       {trunk.state === "canceled" && (
         <TrunkStatusLabel color="text-text-tertiary" label="Merge canceled" url={trunk.detailsUrl} />
       )}
-      {trunk.state === "awaiting" && ready && (
-        <span className="text-xs text-status-green font-medium">Ready to merge</span>
-      )}
       {trunk.canSubmit && (
-        <TrunkMergeButton pr={pr} onMerged={onMerged} label={trunk.state === "awaiting" ? "Merge" : "Retry merge"} />
+        <TrunkMergeButton
+          pr={pr}
+          onMerged={onMerged}
+          label={trunk.state === "awaiting" ? "Merge" : "Retry merge"}
+          ready={trunk.state === "awaiting" && ready}
+        />
       )}
     </div>
   );
 }
 
-function TrunkStatusLabel({ color, label, url }: { color: string; label: string; url: string | null }) {
+function TrunkStatusLabel({ color, label, url, title }: { color: string; label: string; url: string | null; title?: string }) {
   const text = <span className={`text-xs font-medium ${color}`}>{label}</span>;
   if (!url) return text;
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline" title="View in Trunk merge queue">
+    <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline" title={title ?? "View in Trunk merge queue"}>
       {text}
     </a>
   );
 }
 
 // Two-step confirm button that posts `/trunk merge` on the PR.
-function TrunkMergeButton({ pr, onMerged, label }: { pr: GitHubPR; onMerged?: () => void; label: string }) {
+function TrunkMergeButton({ pr, onMerged, label, ready }: { pr: GitHubPR; onMerged?: () => void; label: string; ready?: boolean }) {
   const [state, setState] = useState<"idle" | "confirm" | "merging" | "done" | "error">("idle");
   const { toast } = useToast();
   const num = getPrNumber(pr.url);
+  const reasons = pr.mergeReadiness?.reasons ?? [];
+
+  // Drafts can't be merged at all — render a fully disabled, non-clickable button.
+  if (pr.draft) {
+    return (
+      <button
+        disabled
+        className="text-xs font-medium px-1.5 py-0.5 rounded border border-border-muted/40 text-text-muted/50 cursor-not-allowed"
+        title={reasons.length ? `Not ready: ${reasons.join(", ")}` : "Draft — not ready to merge"}
+      >
+        {label}
+      </button>
+    );
+  }
 
   async function submit() {
     setState("merging");
@@ -283,8 +331,18 @@ function TrunkMergeButton({ pr, onMerged, label }: { pr: GitHubPR; onMerged?: ()
   return (
     <button
       onClick={() => setState("confirm")}
-      className="text-xs font-medium px-1.5 py-0.5 rounded border border-border-muted text-text-secondary hover:bg-fill-muted hover:border-border transition-colors"
-      title={`Comment "/trunk merge" on #${num}`}
+      className={`text-xs font-medium px-1.5 py-0.5 rounded border transition-colors ${
+        ready
+          ? "border-status-green/40 text-status-green hover:bg-status-green/10 hover:border-status-green"
+          : "border-border-muted/60 text-text-muted hover:text-text-secondary hover:bg-fill-muted hover:border-border"
+      }`}
+      title={
+        ready
+          ? `Ready to merge — comment "/trunk merge" on #${num}`
+          : reasons.length
+            ? `Not ready: ${reasons.join(", ")} — comment "/trunk merge" on #${num}`
+            : `Comment "/trunk merge" on #${num}`
+      }
     >
       {state === "error" ? "Retry" : label}
     </button>
@@ -675,7 +733,10 @@ function LinksCell({
   const canCreateAgent = !agent && Boolean(onAgentCreated) && Boolean(createPr);
 
   return (
-    <span className="inline-flex items-center gap-0.5">
+    // block-level flex (not inline-flex): lets the cell's `align-middle` truly
+    // vertically center the icons — an inline-flex box aligns to the text
+    // baseline of the line box instead, sitting a few px high.
+    <span className="flex items-center gap-0.5">
       <span className={linkSlotClass}>
         {claudeUrl && (
           <a
@@ -821,10 +882,10 @@ function WorkItemTable({
             const isClosed = isItemClosed(item);
             // Keep child connectors aligned under the ticket's own stack indent
             // when this item is itself nested in a cross-item stack view.
-            const childIndentPrefix =
+            const childPrefixLines: boolean[] =
               stackMeta && stackMeta.depth > 0
-                ? stackMeta.parentLines.map((h) => (h ? "│  " : "   ")).join("") + (stackMeta.isLast ? "   " : "│  ")
-                : "";
+                ? [...stackMeta.parentLines, !stackMeta.isLast]
+                : [];
             return (
               <React.Fragment key={item.id}>
                 <tr
@@ -870,10 +931,7 @@ function WorkItemTable({
                     >
                       <>
                         {stackMeta && stackMeta.depth > 0 && (
-                          <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
-                            {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
-                            {stackMeta.isLast ? "└─" : "├─"}{" "}
-                          </span>
+                          <TreeConnector lines={stackMeta.parentLines} isLast={stackMeta.isLast} />
                         )}
                         <a
                           href={item.linear?.url ?? item.prs[0]?.url ?? "#"}
@@ -925,11 +983,7 @@ function WorkItemTable({
                       </td>
                       <td className="py-1.5 px-2">
                         <span className="flex items-center min-w-0">
-                          <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
-                            {childIndentPrefix}
-                            {node.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
-                            {node.isLast ? "└─" : "├─"}{" "}
-                          </span>
+                          <TreeConnector lines={[...childPrefixLines, ...node.parentLines]} isLast={node.isLast} />
                           <a
                             href={pr.url}
                             target="_blank"
@@ -942,11 +996,11 @@ function WorkItemTable({
                         </span>
                       </td>
                       <td className="py-1.5 px-0 text-center w-[24px]" />
-                      <td className="py-1.5 px-1 whitespace-nowrap" />
-                      <td className="py-1.5 px-1 whitespace-nowrap">
+                      <td className="py-1.5 pl-1 pr-0 whitespace-nowrap" />
+                      <td className="py-1.5 pl-0 pr-1 whitespace-nowrap">
                         <PrCellLink pr={pr} onMerged={onMerged} />
                       </td>
-                      <td className="py-1.5 px-1 whitespace-nowrap">
+                      <td className="py-1.5 px-1 whitespace-nowrap align-middle">
                         <LinksCell
                           claudeUrl={pr.claudeSessionUrl}
                           slackUrl={pr.slackThreadUrl}
@@ -1017,10 +1071,7 @@ function WorkItemTable({
                 >
                   <>
                     {stackMeta && stackMeta.depth > 0 && (
-                      <span className="text-text-muted font-mono text-xs whitespace-pre flex-shrink-0">
-                        {stackMeta.parentLines.map((hasLine) => hasLine ? "│  " : "   ").join("")}
-                        {stackMeta.isLast ? "└─" : "├─"}{" "}
-                      </span>
+                      <TreeConnector lines={stackMeta.parentLines} isLast={stackMeta.isLast} />
                     )}
                     {(() => {
                       const isClosed = isItemClosed(item);
@@ -1046,7 +1097,7 @@ function WorkItemTable({
                   />
                 )}
               </td>
-              <td className="py-1.5 px-1 whitespace-nowrap">
+              <td className="py-1.5 pl-1 pr-0 whitespace-nowrap">
                 {item.linear ? (
                   <LinearStatusDropdown
                     issue={item.linear}
@@ -1067,7 +1118,7 @@ function WorkItemTable({
                   <EmptyServiceCell><SiLinear className="w-3.5 h-3.5 text-text-muted" /></EmptyServiceCell>
                 )}
               </td>
-              <td className="py-1.5 px-1 whitespace-nowrap">
+              <td className="py-1.5 pl-0 pr-1 whitespace-nowrap">
                 {item.prs.length > 0 ? (
                   <div className="flex flex-col gap-0.5">
                     {item.prs.map(pr => (
@@ -1088,7 +1139,7 @@ function WorkItemTable({
                   <EmptyServiceCell><PrStatusIcon /></EmptyServiceCell>
                 )}
               </td>
-              <td className="py-1.5 px-1 whitespace-nowrap">
+              <td className="py-1.5 px-1 whitespace-nowrap align-middle">
                 <WorkItemLinksCell item={item} onAgentCreated={onAgentCreated} />
               </td>
               <td className="py-1.5 px-1 whitespace-nowrap">
@@ -1574,6 +1625,7 @@ function useWorkItems(intervalMs = 300000) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ step: number; totalSteps: number } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
   const fetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
@@ -1603,6 +1655,7 @@ function useWorkItems(intervalMs = 300000) {
     if (!bypassCache && now - lastFetchRef.current < intervalMs) return;
     fetchingRef.current = true;
     setLoading(true);
+    const start = Date.now();
     try {
       const url = bypassCache ? "/api/work-items?fresh=1" : "/api/work-items";
       const res = await fetch(url, { cache: "no-store" });
@@ -1637,6 +1690,7 @@ function useWorkItems(intervalMs = 300000) {
     } catch (e) {
       setErrors([errorMessage(e)]);
     } finally {
+      setLastDurationMs(Date.now() - start);
       setLoading(false);
       fetchingRef.current = false;
     }
@@ -1706,7 +1760,7 @@ function useWorkItems(intervalMs = 300000) {
     }).catch(() => {});
   }, []);
 
-  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, refresh, updateItemStatus, updateItemPriority, addTag, removeTag };
+  return { items, reviewItems, viewerLogin, allTags, rateLimits, stats, recent, errors, loading, progress, lastUpdated, lastDurationMs, refresh, updateItemStatus, updateItemPriority, addTag, removeTag };
 }
 
 // Drives desktop notifications on a fast cadence, independent of the heavier
@@ -2396,7 +2450,7 @@ function CompletedTable({
 }
 
 function Home() {
-  const { items: allUnfilteredItems, reviewItems, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, refresh: refreshAll, updateItemStatus, updateItemPriority, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
+  const { items: allUnfilteredItems, reviewItems, allTags, rateLimits: rateLimitInfos, stats, recent, errors: serviceErrors, loading: anyLoading, progress, lastUpdated, lastDurationMs, refresh: refreshAll, updateItemStatus, updateItemPriority, addTag: rawAddTag, removeTag: rawRemoveTag } = useWorkItems();
   useNotificationPoll();
   const { toast } = useToast();
 
@@ -2810,6 +2864,13 @@ function Home() {
         </button>
         <span className="text-[11px] text-text-tertiary tabular-nums" suppressHydrationWarning>
           {progress ? `${progress.step}/${progress.totalSteps}` : lastUpdated ? timeAgo(new Date(lastUpdated).toISOString()).text : ""}
+          {!progress && lastDurationMs != null && (
+            <span className="text-text-muted" title="Time the last refresh took">
+              {" ("}
+              {lastDurationMs >= 1000 ? `${(lastDurationMs / 1000).toFixed(1)}s` : `${lastDurationMs}ms`}
+              {")"}
+            </span>
+          )}
         </span>
         {rateLimitInfos.length > 0 && (
           <ApiStatsPopover rateLimits={rateLimitInfos} stats={stats} recent={recent} />
