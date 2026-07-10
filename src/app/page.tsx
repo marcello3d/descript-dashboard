@@ -392,16 +392,24 @@ function CopyBranchButton({ branch }: { branch: string }) {
 
 function SectionHeader({ label, count, colSpan, collapsed, onToggle, isDraft }: { label: string; count: number; colSpan: number; collapsed?: boolean; onToggle?: () => void; isDraft?: boolean }) {
   return (
-    <tr className={sectionHeaderClass}>
-      <td colSpan={colSpan} className="pt-4 pb-1 px-2">
-        <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer inline-flex items-center gap-1.5">
-          <span className="inline-block w-4 text-xs">{collapsed ? "▸" : "▾"}</span>
-          {isDraft && <DraftPrIcon className="w-3.5 h-3.5 flex-shrink-0" />}
-          <span>{isDraft ? `DRAFT: ${label}` : label}</span>
-          <span className="font-normal">({count})</span>
-        </button>
-      </td>
-    </tr>
+    <>
+      {/* Non-sticky grey spacer: gives the section header breathing room above
+          the label, but scrolls away so the stuck header is a clean normal-height
+          row. Same grey as the label row, no border between them. */}
+      <tr className="bg-surface-alt" aria-hidden="true">
+        <td colSpan={colSpan} className="h-3 p-0" />
+      </tr>
+      <tr className={sectionHeaderClass}>
+        <td colSpan={colSpan} className="py-1.5 px-2">
+          <button onClick={onToggle} className="text-xs font-semibold text-text-tertiary uppercase tracking-wide hover:text-text-secondary transition-colors cursor-pointer inline-flex items-center gap-1.5">
+            <span className="inline-block w-4 text-xs">{collapsed ? "▸" : "▾"}</span>
+            {isDraft && <DraftPrIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+            <span>{isDraft ? `DRAFT: ${label}` : label}</span>
+            <span className="font-normal">({count})</span>
+          </button>
+        </td>
+      </tr>
+    </>
   );
 }
 
