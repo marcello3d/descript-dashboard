@@ -50,19 +50,29 @@ function PrStatusIcon({ pr }: { pr?: { draft: boolean; merged: boolean; closed?:
 // parent being a `flex items-center` row (self-stretch → full content height).
 function TreeConnector({ lines, isLast }: { lines: boolean[]; isLast: boolean }) {
   const LEVEL = "relative w-[20px]";
-  const VLINE = "absolute left-1/2 -translate-x-1/2 -top-1.5 -bottom-1.5 w-px bg-text-muted/70";
+  const LINE = "bg-text-muted/70";
+  const BORDER = "border-text-muted/70";
+  // Standard tree: each elbow is a self-contained `└` sitting under its parent's
+  // text — its short up-stub bleeds 8px into the padding gap above. A tee (`├`,
+  // a node with a following sibling) continues 8px down, so the next sibling's
+  // up-stub meets it in the gap: siblings touch, nested elbows don't. Ancestor
+  // guides span full height. Verticals are inset `left-2.5` (past the column
+  // edge + the connector's `mr-1.5` text gap) so a nested elbow tucks under its
+  // parent's text rather than sitting left of it, and the elbow arm stays short.
+  const GUIDE = `absolute left-2.5 -top-2 -bottom-2 w-px ${LINE}`;
   return (
-    <span className="self-stretch flex flex-shrink-0" aria-hidden="true">
+    <span className="self-stretch flex flex-shrink-0 mr-1.5" aria-hidden="true">
       {lines.map((hasLine, i) => (
-        <span key={i} className={LEVEL}>{hasLine && <span className={VLINE} />}</span>
+        <span key={i} className={LEVEL}>{hasLine && <span className={GUIDE} />}</span>
       ))}
       <span className={LEVEL}>
         {isLast ? (
-          <span className="absolute left-1/2 -top-1.5 bottom-1/2 right-1 border-l border-b border-text-muted/70 rounded-bl-md" />
+          // rounded elbow: left border = vertical, bottom border = horizontal
+          <span className={`absolute left-2.5 right-0 -top-2 bottom-1/2 border-l border-b ${BORDER} rounded-bl-md`} />
         ) : (
           <>
-            <span className={VLINE} />
-            <span className="absolute left-1/2 right-1 top-1/2 -translate-y-1/2 h-px bg-text-muted/70" />
+            <span className={`absolute left-2.5 -top-2 -bottom-2 w-px ${LINE}`} />
+            <span className={`absolute left-2.5 right-0 top-1/2 -translate-y-1/2 h-px ${LINE}`} />
           </>
         )}
       </span>
@@ -430,20 +440,24 @@ function DiffStats({ additions, deletions }: { additions: number; deletions: num
   );
 }
 
-function AgentInfo({ agent }: { agent: CursorAgent }) {
-  const s = agent.status.toLowerCase();
+// A small status dot overlaid on the Cursor icon (green running / red failed /
+// yellow otherwise), so agent status costs no horizontal space — the status is
+// spelled out in the icon's tooltip. Finished agents show no dot.
+function AgentStatusDot({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === "finished") return null;
   const color =
     s === "running" || s === "in_progress"
-      ? "text-status-green"
+      ? "bg-status-green"
       : s === "failed" || s === "error"
-      ? "text-status-red"
-      : "text-text-tertiary";
-
-  // Return null (not an empty span) — an empty flex child still picks up the
-  // parent's gap, leaving phantom space after the icon.
-  if (s === "finished") return null;
-
-  return <span className={`text-xs ${color}`}>{s}</span>;
+      ? "bg-status-red"
+      : "bg-status-yellow";
+  return (
+    <span
+      className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-surface ${color}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 function ServiceHeader({
@@ -771,12 +785,14 @@ function LinksCell({
             href={agent.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${linkIconClass} inline-flex items-center gap-1 text-text-secondary hover:text-text-primary`}
-            title="Open Cursor agent"
-            aria-label="Open Cursor agent"
+            className={`${linkIconClass} inline-flex items-center text-text-secondary hover:text-text-primary`}
+            title={`Cursor agent — ${agent.status.toLowerCase()}`}
+            aria-label={`Open Cursor agent (${agent.status.toLowerCase()})`}
           >
-            <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
-            <AgentInfo agent={agent} />
+            <span className="relative inline-flex">
+              <CursorIcon className="w-3.5 h-3.5 flex-shrink-0" />
+              <AgentStatusDot status={agent.status} />
+            </span>
           </a>
         ) : canCreateAgent ? (
           <CreateAgentButton pr={createPr!} linear={linear} title={title} onCreated={onAgentCreated!} />
@@ -889,7 +905,7 @@ function WorkItemTable({
             return (
               <React.Fragment key={item.id}>
                 <tr
-                  className={tableRowClass}
+                  className={tableRowClassNoBorder}
                   data-item-id={item.id}
                   data-highlight={highlightedId === item.id ? "true" : undefined}
                 >
@@ -968,12 +984,12 @@ function WorkItemTable({
                   <td className="py-1.5 px-1 whitespace-nowrap" />
                   <td className="py-1.5 px-1 whitespace-nowrap" />
                 </tr>
-                {forest.map((node) => {
+                {forest.map((node, idx) => {
                   const pr = node.pr;
                   const agent = item.agents.find(a => a.prUrl === pr.url);
                   const prClosed = pr.merged || pr.closed;
                   return (
-                    <tr key={`${item.id}:pr:${pr.id}`} className={tableRowClass}>
+                    <tr key={`${item.id}:pr:${pr.id}`} className={idx === forest.length - 1 ? tableRowClass : tableRowClassNoBorder}>
                       <td className="py-1.5 px-0 w-[44px]" />
                       <td className="py-1.5 px-2 text-right">
                         {(() => {
