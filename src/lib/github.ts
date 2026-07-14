@@ -89,21 +89,60 @@ function extractClaudeLinks(body: string | null | undefined): {
   return { slackThreadUrl: clean(slack?.[0]), claudeSessionUrl: clean(session?.[0]) };
 }
 
+// GitHub suffixes every GitHub App account's login with "[bot]" (e.g.
+// claude[bot], cursor[bot]) — how we tell App-authored PRs and reviews apart
+// from human ones.
+export function isBotLogin(login: string): boolean {
+  return login.endsWith("[bot]");
+}
+
+// Latest review state per reviewer. listReviews returns reviews chronologically,
+// so the last APPROVED/CHANGES_REQUESTED entry for a login is their current one.
+function latestReviewStates(reviews: { login: string; state: string }[]): Map<string, string> {
+  const byUser = new Map<string, string>();
+  for (const r of reviews) {
+    if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
+      byUser.set(r.login, r.state);
+    }
+  }
+  return byUser;
+}
+
+// Bot-authored PRs (e.g. claude[bot]) require two *human* approvals before the
+// repo will merge them — enforced by a CI check, but GitHub's own reviewDecision
+// can read APPROVED off a single approval. Count distinct human reviewers whose
+// latest review is an approval.
+const REQUIRED_BOT_HUMAN_APPROVALS = 2;
+
+function humanApprovalCount(reviews: { login: string; state: string }[]): number {
+  let count = 0;
+  for (const [login, state] of latestReviewStates(reviews)) {
+    if (state === "APPROVED" && !isBotLogin(login)) count++;
+  }
+  return count;
+}
+
 // Transform raw PR to the app's GitHubPR type
 export function transformPR(raw: RawGitHubPR): GitHubPR {
   let reviewDecision: string | null = raw.reviewDecision ?? null;
   if (!reviewDecision && !raw.draft && raw.reviews.length > 0) {
-    const byUser = new Map<string, string>();
-    for (const r of raw.reviews) {
-      if (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED") {
-        byUser.set(r.login, r.state);
-      }
-    }
-    if ([...byUser.values()].some(s => s === "CHANGES_REQUESTED")) {
+    const states = latestReviewStates(raw.reviews);
+    if ([...states.values()].some(s => s === "CHANGES_REQUESTED")) {
       reviewDecision = "CHANGES_REQUESTED";
-    } else if (byUser.size > 0) {
+    } else if (states.size > 0) {
       reviewDecision = "REVIEW_REQUIRED";
     }
+  }
+
+  // A bot-authored PR isn't "approved" until two humans have approved it, no
+  // matter what GitHub's reviewDecision says. Downgrade to REVIEW_REQUIRED so the
+  // UI keeps showing it as waiting on review rather than ready to merge.
+  if (
+    reviewDecision === "APPROVED" &&
+    isBotLogin(raw.userLogin) &&
+    humanApprovalCount(raw.reviews) < REQUIRED_BOT_HUMAN_APPROVALS
+  ) {
+    reviewDecision = "REVIEW_REQUIRED";
   }
 
   return {
@@ -364,6 +403,23 @@ export async function fetchRawPrsByUrls(
       batch.map(async ({ owner, repo, number }) => {
         try {
           const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: number });
+
+          // Reviews are only needed to gate the bot two-human-approval rule, so
+          // fetch them just for open, non-draft, bot-authored PRs (otherwise the
+          // gate can't confirm approvals and would keep the PR showing "needs
+          // review"). Human-authored PRs skip this to save an API call.
+          let reviews: { login: string; state: string }[] = [];
+          if (!pr.draft && !pr.merged && isBotLogin(pr.user?.login ?? "")) {
+            try {
+              const { data: rawReviews } = await octokit.rest.pulls.listReviews({
+                owner, repo, pull_number: number, per_page: 100,
+              });
+              reviews = rawReviews
+                .filter(r => r.state === "APPROVED" || r.state === "CHANGES_REQUESTED")
+                .map(r => ({ login: r.user?.login ?? "", state: r.state }));
+            } catch { /* ignore review fetch errors */ }
+          }
+
           return {
             id: pr.id,
             title: pr.title,
@@ -382,7 +438,7 @@ export async function fetchRawPrsByUrls(
             additions: pr.additions,
             deletions: pr.deletions,
             changedFiles: pr.changed_files,
-            reviews: [],
+            reviews,
           } satisfies RawGitHubPR;
         } catch {
           return null;
